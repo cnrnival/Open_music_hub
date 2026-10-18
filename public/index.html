@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#000000">
+	<title>Open Music Hub — Música em um só lugar</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+	<link rel="stylesheet" href="css/styles.css">
+	<script src="js/config.js" defer></script>
+	<script src="js/app.js" defer></script>
+</head>
+<body>
+	<!-- A navegação global fica acima da biblioteca, da área principal e do player fixo.
+	     Global navigation stays above the persistent library, main view, and player. -->
+	<header class="topbar">
+		<button class="brand" type="button" aria-label="Página inicial"><span aria-hidden="true">•••</span></button>
+		<div class="topbar__navigation">
+			<button class="icon-button topbar__home" type="button" aria-label="Início"><span class="mdi mdi-home" aria-hidden="true"></span></button>
+			<div class="search-box">
+				<span class="mdi mdi-magnify" aria-hidden="true"></span>
+				<input type="search" id="input-search" placeholder="O que você quer ouvir?" aria-label="Buscar músicas, artistas e podcasts">
+				<button class="icon-button search-box__browse" type="button" aria-label="Navegar"><span class="mdi mdi-archive-music-outline" aria-hidden="true"></span></button>
+			</div>
+		</div>
+		<nav class="topbar__actions" aria-label="Conta e notificações">
+			<button class="icon-button topbar__premium" type="button" data-action="explore">Explorar música</button>
+			<button class="icon-button topbar__install" type="button" data-action="install"><span class="mdi mdi-download-circle-outline" aria-hidden="true"></span> Instalar aplicativo</button>
+			<button class="icon-button api-settings-button" type="button" aria-label="Configurar APIs" data-action="api-settings"><span class="mdi mdi-cog-outline" aria-hidden="true"></span></button>
+			<button class="icon-button" type="button" aria-label="Novidades e lançamentos" data-action="notifications"><span class="mdi mdi-bell-outline" aria-hidden="true"></span></button>
+			<button class="icon-button topbar__friends" type="button" aria-label="Atividade dos amigos" data-action="friends"><span class="mdi mdi-account-group-outline" aria-hidden="true"></span></button>
+			<button class="profile-button" type="button" aria-label="Perfil" data-action="profile">G</button>
+		</nav>
+	</header>
+
+	<div class="workspace">
+		<!-- A biblioteca e os painéis permanecem enquanto as páginas centrais mudam de estado.
+		     The library and panels remain in place while the central pages change state. -->
+		<aside class="library-panel panel">
+			<div class="library-panel__heading">
+				<button class="library-panel__title" type="button" aria-label="Recolher biblioteca"><span class="mdi mdi-bookshelf" aria-hidden="true"></span> Sua Biblioteca</button>
+				<div class="library-panel__actions">
+					<button class="icon-button" type="button" aria-label="Criar playlist" data-action="create-playlist"><span class="mdi mdi-plus" aria-hidden="true"></span></button>
+					<button class="icon-button library-panel__expand" type="button" aria-label="Expandir biblioteca" aria-pressed="false"><span class="mdi mdi-arrow-expand-all" aria-hidden="true"></span></button>
+				</div>
+			</div>
+			<div class="library-panel__filters" aria-label="Filtrar biblioteca">
+				<button class="filter-chip" type="button" data-library-filter="playlist">Playlists</button>
+				<button class="filter-chip" type="button" data-library-filter="podcast">Podcasts</button>
+				<button class="filter-chip" type="button" data-library-filter="album">Álbuns</button>
+				<button class="icon-button library-panel__more" type="button" aria-label="Mais filtros"><span class="mdi mdi-chevron-right" aria-hidden="true"></span></button>
+			</div>
+			<div class="import-card">
+				<button class="import-card__close" type="button" aria-label="Fechar aviso"><span class="mdi mdi-close" aria-hidden="true"></span></button>
+				<strong>Importe músicas de outros apps</strong>
+				<span>Traga suas playlists, músicas e artistas.</span>
+				<button class="import-card__button" type="button">Importar biblioteca</button>
+				<span class="import-card__music mdi mdi-music-note" aria-hidden="true"></span>
+			</div>
+			<div class="library-panel__tools">
+				<button class="icon-button library-search" type="button" aria-label="Buscar na biblioteca"><span class="mdi mdi-magnify" aria-hidden="true"></span></button>
+				<button class="sort-button" type="button" aria-label="Ordenar biblioteca: recentes">Recentes <span class="mdi mdi-format-list-bulleted" aria-hidden="true"></span></button>
+			</div>
+			<div class="library-list">
+				<button class="library-item" data-searchable data-category="playlist" type="button">
+					<span class="library-item__art mdi mdi-music" aria-hidden="true"></span>
+					<span><strong>Suas músicas</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Playlist • 128 músicas</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="artist" type="button">
+					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
+					<span><strong>Lil Peep</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="artist" type="button">
+					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
+					<span><strong>Lana Del Rey</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="artist" type="button">
+					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
+					<span><strong>Cigarettes After Sex</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="artist" type="button">
+					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
+					<span><strong>zTokyo</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="artist" type="button">
+					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
+					<span><strong>lilgiela33</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="playlist" type="button">
+					<span class="library-item__art mdi mdi-playlist-music" aria-hidden="true"></span>
+					<span><strong>Lil Peep - The Complete Collection</strong><small>Playlist • 86 músicas</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="album" type="button">
+					<span class="library-item__art mdi mdi-album" aria-hidden="true"></span>
+					<span><strong>Come Over When You're Sober, Pt. 1</strong><small>Álbum • Lil Peep</small></span>
+				</button>
+				<button class="library-item" data-searchable data-category="podcast" type="button">
+					<span class="library-item__art mdi mdi-podcast" aria-hidden="true"></span>
+					<span><strong>Podcast para ouvir</strong><small>Podcast • Episódios novos</small></span>
+				</button>
+			</div>
+		</aside>
+
+		<main class="main-view panel">
+			<!-- A página inicial reúne recomendações locais e resultados dos catálogos conectados.
+			     The home page combines local recommendations with results from connected catalogs. -->
+			<div class="home-view">
+			<section class="featured-banner" aria-labelledby="featured-title">
+				<div class="featured-banner__art" aria-hidden="true"><span class="mdi mdi-music-note-eighth"></span><span class="mdi mdi-music-note"></span><span class="mdi mdi-music"></span><span class="featured-banner__badge">U</span></div>
+				<div class="featured-banner__content">
+					<div class="featured-banner__source">
+						<span class="featured-banner__cover">B<br><b>2026</b></span>
+						<span><strong>uDiscover Playlists</strong><small>Propaganda</small></span>
+					</div>
+					<p class="eyebrow">PLAYLIST EM DESTAQUE</p>
+					<h1 id="featured-title">Best of 2026: Global Hits</h1>
+					<div class="featured-banner__actions">
+						<button class="primary-button" type="button">Ouça agora</button>
+						<button class="icon-button featured-more" type="button" aria-label="Mais opções"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button>
+					</div>
+				</div>
+			</section>
+
+			<nav class="home-filters" aria-label="Categorias">
+				<button class="filter-chip is-active" type="button" data-home-filter="all">Tudo</button>
+				<button class="filter-chip" type="button" data-home-filter="music">Música</button>
+				<button class="filter-chip" type="button" data-home-filter="podcast">Podcasts</button>
+				<button class="filter-chip" type="button" data-home-filter="audiobook">Audiolivros</button>
+			</nav>
+
+			<!-- Resultados externos usam dados normalizados da API e são criados em JavaScript.
+			     External results use normalized API data and are created in JavaScript. -->
+			<section class="api-search-results" aria-live="polite" hidden>
+				<div class="section-heading"><h2>Resultados da busca</h2><span class="api-search-status"></span></div>
+				<div class="api-search-grid"></div>
+			</section>
+
+			<section class="quick-picks" aria-label="Feito para você">
+				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-account-music" aria-hidden="true"></span><strong>zTokyo</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
+				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-music" aria-hidden="true"></span><strong>sex [last nite]</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
+				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-album" aria-hidden="true"></span><strong>Pagodin</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
+				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-account-music" aria-hidden="true"></span><strong>Lil Peep</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
+			</section>
+
+			<section class="content-section" data-content-type="music" aria-labelledby="artists-title">
+				<div class="section-heading"><h2 id="artists-title">Seus artistas favoritos</h2><button class="text-button show-all-artists" type="button" aria-expanded="false">Mostrar tudo</button></div>
+				<div class="artist-grid">
+					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Yung Bruh</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Lil Tracy</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--illustration"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>michi</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Teddy</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--graphic"><span class="mdi mdi-record-circle-outline" aria-hidden="true"></span></span><strong>suisside</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>lilgiela33</strong><small>Artista</small></button>
+					<button class="artist-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>zTokyo</strong><small>Artista</small></button>
+				</div>
+			</section>
+
+			<section class="content-section" data-content-type="music" aria-labelledby="mixes-title">
+				<div class="section-heading"><h2 id="mixes-title">Feito para você</h2><button class="text-button show-all-mixes" type="button" aria-expanded="false">Mostrar tudo</button></div>
+				<div class="release-grid">
+					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-playlist-music" aria-hidden="true"></span><strong>Daily Mix 1</strong><small>Lil Peep, Lil Tracy e muito mais</small></button>
+					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-compass-outline" aria-hidden="true"></span><strong>Descobertas da semana</strong><small>Suas próximas músicas favoritas</small></button>
+					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-new-box" aria-hidden="true"></span><strong>Radar de novidades</strong><small>Os lançamentos que combinam com você</small></button>
+					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-headphones" aria-hidden="true"></span><strong>Mix alternativo</strong><small>Uma seleção feita para você</small></button>
+					<button class="release-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="release-card__art mdi mdi-heart-music" aria-hidden="true"></span><strong>Favoritas recentes</strong><small>As músicas que você mais ouviu</small></button>
+					<button class="release-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="release-card__art mdi mdi-radio" aria-hidden="true"></span><strong>Rádio personalizada</strong><small>Mais músicas para descobrir</small></button>
+				</div>
+			</section>
+			<p class="empty-results" hidden>Nenhum conteúdo encontrado.</p>
+			</div>
+
+			<section class="news-view" aria-labelledby="news-title" aria-live="polite" hidden>
+				<button class="detail-back news-back" type="button"><span class="mdi mdi-arrow-left" aria-hidden="true"></span> Voltar</button>
+				<header class="section-heading"><h1 id="news-title">Novidades</h1></header>
+				<p class="news-status"></p>
+				<div class="news-grid"></div>
+			</section>
+
+			<!-- Esta página mostra o perfil, a faixa, o álbum ou a playlist selecionada.
+			     This page displays the selected artist profile, track, album, or playlist. -->
+			<section class="detail-view" aria-live="polite" hidden>
+				<button class="detail-back" type="button"><span class="mdi mdi-arrow-left" aria-hidden="true"></span> Voltar</button>
+				<header class="detail-header">
+					<div class="detail-header__art" aria-hidden="true"><span class="mdi mdi-music"></span></div>
+					<div class="detail-header__content">
+						<h2 class="detail-kind">Playlist pública</h2>
+						<h1 class="detail-title"></h1>
+						<p class="detail-description"></p>
+						<div class="detail-meta"></div>
+					</div>
+				</header>
+				<div class="detail-toolbar">
+					<button class="detail-play" type="button" aria-label="Reproduzir seleção"><span class="mdi mdi-play" aria-hidden="true"></span></button>
+					<button class="detail-shuffle icon-button" type="button" aria-label="Alternar reprodução aleatória" aria-pressed="false"><span class="mdi mdi-shuffle" aria-hidden="true"></span></button>
+					<button class="detail-save icon-button" type="button" aria-label="Salvar na biblioteca" aria-pressed="false"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
+				</div>
+				<div class="detail-track-heading" aria-hidden="true">
+					<span>#</span><span>Título</span><span>Reproduções</span><span><span class="mdi mdi-clock-outline"></span></span>
+				</div>
+				<ol class="detail-track-list"></ol>
+				<p class="detail-empty" hidden>Nenhuma faixa disponível para esta página.</p>
+			</section>
+		</main>
+
+		<aside class="now-playing-panel panel">
+			<div class="now-playing-panel__heading">
+				<button class="now-playing-panel__title" type="button" data-action="queue"><span class="mdi mdi-play-box-outline" aria-hidden="true"></span> Tocando agora</button>
+				<div><button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
+			</div>
+			<div class="now-playing-panel__art mdi mdi-music-note" aria-hidden="true"></div>
+			<div class="now-playing-panel__track">
+				<div><button class="now-playing-panel__track-link" type="button"><h2 class="now-playing-panel__track-title">Cristal (Remasterizado 2024)</h2></button><button class="now-playing-panel__artist-link" type="button"><p class="now-playing-panel__artist">lilberto33</p></button></div>
+					<button class="icon-button now-playing-panel__save" type="button" aria-label="Adicionar à biblioteca" aria-pressed="false"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
+			</div>
+			<section class="credits-card" aria-labelledby="credits-title">
+				<div class="section-heading"><h3 id="credits-title">Créditos</h3><button class="text-button credits-more" type="button">Mostrar tudo</button></div>
+				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong>lilberto33</strong></button><small>Artista principal</small></span><button class="outline-button follow-button" type="button" aria-pressed="true">Seguindo</button></div>
+				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong>lilberto33</strong></button><small>Compositor • Produção</small></span></div>
+				<div class="credit-row credit-row--extra" hidden><span><strong>Cristal</strong><small>Faixa disponível neste player local</small></span></div>
+			</section>
+			<section class="artist-about" aria-labelledby="about-title">
+				<div class="artist-about__copy"><h3 id="about-title">Sobre o artista</h3><strong>lilberto33</strong><p>Uma seleção de sons para acompanhar o seu momento.</p></div>
+			</section>
+		</aside>
+	</div>
+	<button class="restore-now-playing" type="button" hidden>Mostrar painel da faixa</button>
+
+	<!-- O elemento de áudio nativo reproduz arquivos locais e prévias dos catálogos no player fixo.
+	     The native audio element powers local files and catalog previews in the fixed player. -->
+	<footer class="music-player">
+		<input class="music-player__file-input" id="audio-file" type="file" accept="audio/*,video/mp4,.flac,.wma,.aiff,.alac" multiple>
+		<audio class="music-player__audio" preload="metadata"></audio>
+		<div class="Play-music">
+			<button class="Pplay-music__cover" type="button" aria-label="Carregar músicas completas do dispositivo" title="Carregar músicas completas do dispositivo"><span class="mdi mdi-music" aria-hidden="true"></span></button>
+			<div class="Pplay-music__info"><h2 class="Pplay-music__title">Nenhuma música selecionada</h2><p class="Pplay-music__artist">Carregue um arquivo de áudio</p><span class="music-player__status" role="status" aria-live="polite"></span></div>
+			<button class="music-player__add" type="button" aria-label="Adicionar à biblioteca"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
+		</div>
+		<div class="music-player__center">
+			<div class="music-player__controls">
+				<button class="music-player__secondary music-player__shuffle" type="button" aria-label="Ativar reprodução aleatória" aria-pressed="false"><span class="mdi mdi-shuffle" aria-hidden="true"></span></button>
+				<button class="music-player__track music-player__previous" type="button" aria-label="Voltar ao início da faixa"><span class="mdi mdi-skip-previous" aria-hidden="true"></span></button>
+				<button class="music-player__play" type="button" aria-label="Reproduzir" aria-pressed="false" disabled><span class="mdi mdi-play music-player__play-icon" aria-hidden="true"></span></button>
+				<button class="music-player__track music-player__next" type="button" aria-label="Carregar próxima faixa"><span class="mdi mdi-skip-next" aria-hidden="true"></span></button>
+				<button class="music-player__secondary music-player__repeat" type="button" aria-label="Ativar repetição" aria-pressed="false"><span class="mdi mdi-repeat" aria-hidden="true"></span></button>
+			</div>
+			<div class="music-player__timeline"><span class="music-player__time music-player__current-time">0:00</span><input class="music-player__progress" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progresso da música" title="Clique ou arraste para escolher uma posição" disabled><span class="music-player__time music-player__duration">0:00</span></div>
+		</div>
+		<div class="music-player__extras">
+			<button type="button" aria-label="Letra"><span class="mdi mdi-microphone-outline" aria-hidden="true"></span></button>
+			<button type="button" aria-label="Fila"><span class="mdi mdi-playlist-music" aria-hidden="true"></span></button>
+			<button type="button" aria-label="Conectar a um dispositivo"><span class="mdi mdi-speaker" aria-hidden="true"></span></button>
+			<div class="music-player__volume"><button class="music-player__mute" type="button" aria-label="Silenciar"><span class="mdi mdi-volume-high" aria-hidden="true"></span></button><input class="music-player__volume-control" type="range" min="0" max="1" step="0.01" value="0.75" aria-label="Volume" aria-valuetext="75%"></div>
+			<button type="button" aria-label="Mini player"><span class="mdi mdi-picture-in-picture-bottom-right" aria-hidden="true"></span></button>
+			<button type="button" aria-label="Tela cheia"><span class="mdi mdi-fullscreen" aria-hidden="true"></span></button>
+		</div>
+	</footer>
+	<!-- Diálogos reutilizáveis exibem mensagens e permitem criar playlists sem navegar para outra página.
+	     Reusable dialogs provide feedback and playlist creation without page navigation. -->
+	<dialog class="app-dialog" aria-labelledby="dialog-title">
+		<form method="dialog" class="app-dialog__form">
+			<button class="app-dialog__close icon-button" value="cancel" aria-label="Fechar"><span class="mdi mdi-close" aria-hidden="true"></span></button>
+			<h2 id="dialog-title"></h2>
+			<div class="app-dialog__body"></div>
+			<div class="app-dialog__actions"><button class="primary-button app-dialog__confirm" value="confirm">Entendi</button></div>
+		</form>
+	</dialog>
+	<!-- O Client ID do Spotify é público; não inclua client secrets nem chaves privadas no navegador.
+	     The Spotify Client ID is public; do not put client secrets or private keys in the browser. -->
+	<dialog class="api-settings-dialog" aria-labelledby="api-settings-title">
+		<form class="api-settings-form" method="dialog">
+			<button class="api-settings-close icon-button" value="cancel" aria-label="Fechar"><span class="mdi mdi-close" aria-hidden="true"></span></button>
+			<h2 id="api-settings-title">Configuração das APIs</h2>
+			<p>Deezer e Invidious usam endpoints públicos. Para incluir resultados Spotify, crie um app no Developer Dashboard e informe o Client ID público.</p>
+			<label for="spotify-client-id">Spotify Client ID</label>
+			<input id="spotify-client-id" name="spotifyClientId" autocomplete="off" spellcheck="false" placeholder="Cole aqui o Client ID público">
+			<p class="api-settings-hint">Credenciais privadas não devem ser digitadas aqui. O arquivo .env local é ignorado pelo Git.</p>
+			<div class="api-settings-actions">
+				<button class="api-settings-connect" type="button">Conectar Spotify</button>
+				<button class="api-settings-save" type="submit">Salvar configuração</button>
+			</div>
+			<p class="api-settings-status" role="status" aria-live="polite"></p>
+		</form>
+	</dialog>
+	<div class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
