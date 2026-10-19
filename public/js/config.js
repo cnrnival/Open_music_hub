@@ -51,87 +51,134 @@ const API_CONFIG = Object.freeze({
                 return `${this.proxyBasePath}?action=artist-albums&id=${encodeURIComponent(id)}`;
             }
         }),
-        // V2 credentials are configured only on the server and never exposed in this public file.
-        // As credenciais V2 são configuradas somente no servidor e nunca expostas neste arquivo público.
         audioDb: Object.freeze({
             baseUrl: "https://www.theaudiodb.com/",
-            apiPath: "api/v2/json/",
-            apiKeyEnvironmentVariable: "AUDIODB_API_KEY",
+            apiVersionPath: "api/v1/json/",
+            // TheAudioDB's published test key is public and is not a private credential.
+            testApiKey: "123",
             proxyBasePath: "/api/audiodb",
-            get searchRoute() {
-                return `${this.proxyBasePath}/search`;
+            get apiPath() {
+                return `${this.apiVersionPath}${this.testApiKey}/`;
             },
-            get lookupRoute() {
-                return `${this.proxyBasePath}/lookup`;
-            },
-            get discographyRoute() {
-                return `${this.proxyBasePath}/discography`;
+            proxyPath(action, params = {}) {
+                const query = new URLSearchParams({ action, ...params });
+                return `${this.proxyBasePath}?${query}`;
             },
             artistSearchPath(name) {
-                return `${this.proxyBasePath}?action=search&kind=artist&q=${encodeURIComponent(name)}`;
+                return this.proxyPath("search-artist", { artist: name });
             },
-            searchPath(kind, query) {
-                return `${this.proxyBasePath}?action=search&kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}`;
+            searchPath(kind, artist, title = "") {
+                if (kind === "artist") {
+                    return this.artistSearchPath(artist);
+                }
+                if (kind === "album") {
+                    return this.proxyPath("search-album", { artist, album: title });
+                }
+                if (kind === "track") {
+                    return this.proxyPath("search-track", { artist, track: title });
+                }
+                throw new TypeError("Unsupported TheAudioDB search type.");
             },
             lookupPath(kind, id, musicBrainz = false) {
-                const lookupKind = musicBrainz ? `${kind}_mb` : kind;
-                return `${this.proxyBasePath}?action=lookup&kind=${encodeURIComponent(lookupKind)}&id=${encodeURIComponent(id)}`;
+                const action = musicBrainz
+                    ? `lookup-${kind}-mb`
+                    : `lookup-${kind}`;
+                return this.proxyPath(action, { id });
             },
-            discographyPath(artistId) {
-                return `${this.proxyBasePath}?action=discography&id=${encodeURIComponent(artistId)}`;
+            artistSocialPath(id) {
+                return this.proxyPath("lookup-artist-social", { id });
+            },
+            albumByAlbumIdPath(id) {
+                return this.proxyPath("lookup-album-by-album-id", { id });
+            },
+            trackByAlbumPath(id) {
+                return this.proxyPath("lookup-track-by-album", { id });
+            },
+            trackByIdPath(id) {
+                return this.proxyPath("lookup-track-by-id", { id });
+            },
+            discographyPath(artist) {
+                return this.proxyPath("search-discography", { artist });
+            },
+            discographyByMusicBrainzPath(mbid) {
+                return this.proxyPath("search-discography-mb", { mbid });
+            },
+            musicVideosPath(id, musicBrainz = false) {
+                return this.proxyPath(musicBrainz ? "music-videos-mb" : "music-videos", { id });
+            },
+            trackTop10Path(artist) {
+                return this.proxyPath("track-top10", { artist });
+            },
+            mostLovedTracksPath() {
+                return this.proxyPath("most-loved-tracks");
+            },
+            mostLovedAlbumsPath() {
+                return this.proxyPath("most-loved-albums");
+            },
+            trendingPath(country = "us", type = "itunes", format = "albums") {
+                return this.proxyPath("trending", { country, type, format });
             },
             endpoints: Object.freeze({
-                search: Object.freeze({
-                    artist(name) {
-                        return `search/artist/${encodeURIComponent(name)}`;
-                    },
-                    album(name) {
-                        return `search/album/${encodeURIComponent(name)}`;
-                    },
-                    track(name) {
-                        return `search/track/${encodeURIComponent(name)}`;
-                    }
-                }),
-                lookup: Object.freeze({
-                    artist(id) {
-                        return `lookup/artist/${encodeURIComponent(id)}`;
-                    },
-                    artistByMusicBrainz(mbid) {
-                        return `lookup/artist_mb/${encodeURIComponent(mbid)}`;
-                    },
-                    album(id) {
-                        return `lookup/album/${encodeURIComponent(id)}`;
-                    },
-                    albumByMusicBrainz(mbid) {
-                        return `lookup/album_mb/${encodeURIComponent(mbid)}`;
-                    },
-                    track(id) {
-                        return `lookup/track/${encodeURIComponent(id)}`;
-                    },
-                    trackByMusicBrainz(mbid) {
-                        return `lookup/track_mb/${encodeURIComponent(mbid)}`;
-                    }
-                }),
-                list: Object.freeze({
-                    discography(artistId) {
-                        return `list/discography/${encodeURIComponent(artistId)}`;
-                    }
-                })
+                searchArtist(artist) {
+                    return `search.php?s=${encodeURIComponent(artist)}`;
+                },
+                searchDiscography(artist) {
+                    return `discography.php?s=${encodeURIComponent(artist)}`;
+                },
+                searchDiscographyMB(mbid) {
+                    return `discography-mb.php?s=${encodeURIComponent(mbid)}`;
+                },
+                searchAlbum(artist, album) {
+                    return `searchalbum.php?s=${encodeURIComponent(artist)}&a=${encodeURIComponent(album)}`;
+                },
+                searchTrack(artist, track) {
+                    return `searchtrack.php?s=${encodeURIComponent(artist)}&t=${encodeURIComponent(track)}`;
+                },
+                lookupArtist(id) {
+                    return `artist.php?i=${encodeURIComponent(id)}`;
+                },
+                lookupArtistMB(mbid) {
+                    return `artist-mb.php?i=${encodeURIComponent(mbid)}`;
+                },
+                lookupArtistSocial(id) {
+                    return `artist-social.php?i=${encodeURIComponent(id)}`;
+                },
+                lookupAlbum(id) {
+                    return `album.php?i=${encodeURIComponent(id)}`;
+                },
+                lookupAlbumByAlbumId(albumId) {
+                    return `album.php?m=${encodeURIComponent(albumId)}`;
+                },
+                lookupAlbumMB(mbid) {
+                    return `album-mb.php?i=${encodeURIComponent(mbid)}`;
+                },
+                lookupTrackByAlbum(albumId) {
+                    return `track.php?m=${encodeURIComponent(albumId)}`;
+                },
+                lookupTrackById(trackId) {
+                    return `track.php?h=${encodeURIComponent(trackId)}`;
+                },
+                lookupTrackMB(mbid) {
+                    return `track-mb.php?i=${encodeURIComponent(mbid)}`;
+                },
+                musicVideos(artistId) {
+                    return `mvid.php?i=${encodeURIComponent(artistId)}`;
+                },
+                musicVideosMB(mbid) {
+                    return `mvid-mb.php?i=${encodeURIComponent(mbid)}`;
+                },
+                trackTop10(artist) {
+                    return `track-top10.php?s=${encodeURIComponent(artist)}`;
+                },
+                mostLovedTracks: "mostloved.php?format=track",
+                mostLovedAlbums: "mostloved.php?format=album",
+                trending(country = "us", type = "itunes", format = "albums") {
+                    const params = new URLSearchParams({ country, type, format });
+                    return `trending.php?${params}`;
+                }
             }),
             providerPath(resourcePath) {
                 return `${this.apiPath}${resourcePath}`;
-            },
-            providerSearchPath(kind, query) {
-                return this.providerPath(this.endpoints.search[kind](query));
-            },
-            providerLookupPath(kind, id, musicBrainz = false) {
-                const endpoint = musicBrainz
-                    ? this.endpoints.lookup[`${kind}ByMusicBrainz`](id)
-                    : this.endpoints.lookup[kind](id);
-                return this.providerPath(endpoint);
-            },
-            providerDiscographyPath(artistId) {
-                return this.providerPath(this.endpoints.list.discography(artistId));
             }
         }),
         musicBrainz: Object.freeze({
