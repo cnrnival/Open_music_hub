@@ -26,7 +26,10 @@
 			<button class="icon-button topbar__home" type="button" aria-label="Início"><span class="mdi mdi-home" aria-hidden="true"></span></button>
 			<div class="search-box">
 				<span class="mdi mdi-magnify" aria-hidden="true"></span>
-				<input type="search" id="input-search" placeholder="O que você quer ouvir?" aria-label="Buscar músicas, artistas e podcasts">
+				<input type="search" id="input-search" placeholder="O que você quer ouvir?" aria-label="Buscar músicas, artistas e podcasts" aria-autocomplete="list" aria-controls="searchSuggestions">
+				<!-- Caixa de sugestões: fecha no Enter, no Esc ou ao sair do campo.
+				     Suggestions box: closes on Enter, Esc, or when leaving the field. -->
+				<div class="search-suggestions" id="searchSuggestions" role="listbox" aria-label="Sugestões de busca" hidden></div>
 				<button class="icon-button search-box__browse" type="button" aria-label="Navegar"><span class="mdi mdi-archive-music-outline" aria-hidden="true"></span></button>
 			</div>
 		</div>
@@ -219,12 +222,35 @@
 					<ul class="artist-discography"></ul>
 				</section>
 			</section>
+
+			<!-- Vista "Em exibição" expandida na área central: capa em destaque, gradiente
+			     dinâmico pela cor da imagem e letra sincronizada com o tempo da faixa.
+			     Expanded "Now Playing" view in the center area: featured cover, background
+			     gradient driven by the image color, and lyrics synced with track time. -->
+			<section class="expanded-view" id="expandedView" aria-label="Em exibição expandido" hidden>
+				<div class="expanded-view__bar">
+					<p class="expanded-view__eyebrow">EM EXIBIÇÃO</p>
+					<button class="icon-button expanded-view__minimize" type="button" aria-label="Minimizar"><span class="mdi mdi-chevron-down" aria-hidden="true"></span></button>
+				</div>
+				<div class="expanded-view__stage">
+					<div class="expanded-view__art" aria-hidden="true"><span class="mdi mdi-music"></span></div>
+					<div class="expanded-view__meta">
+						<h2 class="expanded-view__title">Nenhuma música selecionada</h2>
+						<p class="expanded-view__artist">Carregue um arquivo de áudio</p>
+						<p class="expanded-view__elapsed"><span class="mdi mdi-clock-outline" aria-hidden="true"></span> <span class="expanded-view__clock">00:00</span></p>
+					</div>
+				</div>
+				<section class="lyrics-synced" aria-label="Letra sincronizada">
+					<p class="lyrics-synced__status" role="status" aria-live="polite"></p>
+					<div class="lyrics-synced__lines"></div>
+				</section>
+			</section>
 		</main>
 
 		<aside class="now-playing-panel panel">
 			<div class="now-playing-panel__heading">
 				<button class="now-playing-panel__title" type="button" data-action="queue"><span class="mdi mdi-play-box-outline" aria-hidden="true"></span> Tocando agora</button>
-				<div><button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
+				<div><button class="icon-button now-playing-panel__expand" type="button" aria-label="Expandir em exibição" aria-expanded="false" aria-controls="expandedView"><span class="mdi mdi-arrow-expand" aria-hidden="true"></span></button><button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
 			</div>
 			<div class="now-playing-panel__art mdi mdi-music-note" aria-hidden="true"></div>
 			<div class="now-playing-panel__track">
