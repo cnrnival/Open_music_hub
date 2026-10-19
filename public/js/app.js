@@ -41,6 +41,14 @@ const detailTrackList = document.querySelector(".detail-track-list");
 const apiSearchSection = document.querySelector(".api-search-results");
 const apiSearchGrid = document.querySelector(".api-search-grid");
 const apiSearchStatus = document.querySelector(".api-search-status");
+const storageKeys = Object.freeze({
+    stats: "open-music-hub:stats",
+    legacyStats: "clone-spotify:stats",
+    clientId: "open-music-hub:client-id",
+    legacyClientId: "clone-spotify:client-id",
+    oauthState: "open-music-hub:oauth-state",
+    oauthVerifier: "open-music-hub:oauth-verifier"
+});
 
 const localAudioUrls = new Set();
 let currentTrack = {
@@ -212,7 +220,11 @@ function normalizeInvidiousItem(item) {
 // Read only this browser's local interaction counters; they are not global Spotify play statistics.
 function readLocalStats() {
     try {
-        const storedStats = JSON.parse(localStorage.getItem("clone-spotify:stats") || "{}");
+        const storedStats = JSON.parse(
+            localStorage.getItem(storageKeys.stats)
+            || localStorage.getItem(storageKeys.legacyStats)
+            || "{}"
+        );
         if (!storedStats || typeof storedStats !== "object" || Array.isArray(storedStats)) {
             console.error("Stored local music statistics must be an object.");
             showToast("As estatísticas locais estão corrompidas; uma nova contagem será iniciada.");
@@ -240,7 +252,7 @@ function updateLocalStats(item, update) {
     const next = update(previous);
 
     try {
-        localStorage.setItem("clone-spotify:stats", JSON.stringify({ ...stats, [key]: next }));
+        localStorage.setItem(storageKeys.stats, JSON.stringify({ ...stats, [key]: next }));
     } catch (error) {
         console.error("Could not save local music statistics.", error);
         showToast("Não foi possível salvar esta contagem neste navegador.");
@@ -365,8 +377,8 @@ async function connectSpotify() {
     const verifierBytes = crypto.getRandomValues(new Uint8Array(48));
     spotifyAuthState = [...stateBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     spotifyAuthVerifier = [...verifierBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    sessionStorage.setItem("clone-spotify:oauth-state", spotifyAuthState);
-    sessionStorage.setItem("clone-spotify:oauth-verifier", spotifyAuthVerifier);
+    sessionStorage.setItem(storageKeys.oauthState, spotifyAuthState);
+    sessionStorage.setItem(storageKeys.oauthVerifier, spotifyAuthVerifier);
 
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(spotifyAuthVerifier));
     const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
@@ -400,8 +412,8 @@ async function finishSpotifyLogin() {
     }
 
     const returnedState = params.get("state");
-    const expectedState = sessionStorage.getItem("clone-spotify:oauth-state");
-    const verifier = sessionStorage.getItem("clone-spotify:oauth-verifier");
+    const expectedState = sessionStorage.getItem(storageKeys.oauthState);
+    const verifier = sessionStorage.getItem(storageKeys.oauthVerifier);
     if (!returnedState || returnedState !== expectedState || !verifier || !spotifyClientId) {
         window.history.replaceState({}, "", window.location.pathname);
         throw new Error("A validação de segurança do login Spotify falhou. Tente conectar novamente.");
@@ -421,8 +433,8 @@ async function finishSpotifyLogin() {
     });
     spotifyAccessToken = token.access_token;
     spotifyTokenExpiresAt = Date.now() + Number(token.expires_in || 3600) * 1000 - 30000;
-    sessionStorage.removeItem("clone-spotify:oauth-state");
-    sessionStorage.removeItem("clone-spotify:oauth-verifier");
+    sessionStorage.removeItem(storageKeys.oauthState);
+    sessionStorage.removeItem(storageKeys.oauthVerifier);
     window.history.replaceState({}, "", window.location.pathname);
     apiSettingsDialog.close();
     showToast("Spotify conectado. A busca agora inclui resultados da sua conta.");
@@ -819,7 +831,10 @@ function playTrack(track, { autoplay = true } = {}) {
     currentTrack = track;
     hasPlayedCurrentTrack = false;
     pendingPlayCount = false;
-    playbackQueueIndex = playbackQueue.findIndex((queuedTrack) => queuedTrack.id === track.id && queuedTrack.provider === track.provider);
+    const queuedTrackIndex = playbackQueue.indexOf(track);
+    playbackQueueIndex = queuedTrackIndex >= 0
+        ? queuedTrackIndex
+        : playbackQueue.findIndex((queuedTrack) => queuedTrack.id === track.id && queuedTrack.provider === track.provider);
     if (playbackQueueIndex < 0) {
         playbackQueue = [track];
         playbackQueueIndex = 0;
@@ -1131,7 +1146,8 @@ async function openNamedArtist(name, sourceItem = currentTrack) {
 async function loadApiConfiguration() {
     try {
         const config = await fetchJson(API_CONFIG.serverRoutes.configuration);
-        const storedClientId = localStorage.getItem("clone-spotify:client-id");
+        const storedClientId = localStorage.getItem(storageKeys.clientId)
+            || localStorage.getItem(storageKeys.legacyClientId);
         spotifyClientId = storedClientId || config.spotifyClientId || "";
         spotifyClientIdInput.value = spotifyClientId;
         await finishSpotifyLogin();
@@ -1171,7 +1187,7 @@ async function openNamedCollection(name, kind) {
             kind,
             id: name,
             title: name,
-            description: "Conteúdo demonstrativo criado neste clone."
+            description: "Conteúdo demonstrativo desta biblioteca musical."
         });
     } catch (error) {
         console.error(`Could not look up the ${kind} "${name}".`, error);
@@ -1355,7 +1371,10 @@ function updateTrackLabels(fileName, performer, stripExtension = true) {
 // Arquivos locais são a opção para reproduzir faixas completas autorizadas e formar uma fila privada.
 // Local files provide complete playback for authorized tracks and create a private playback queue.
 function loadAudioFiles(files) {
-    const selectedFiles = [...files].filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"));
+    const supportedAudioExtension = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|aiff|alac|wma)$/i;
+    const selectedFiles = [...files].filter((file) => (
+        file.type.startsWith("audio/") || supportedAudioExtension.test(file.name)
+    ));
     if (!selectedFiles.length) {
         status.textContent = "Selecione um ou mais arquivos de áudio compatíveis.";
         showToast(status.textContent);
@@ -1682,9 +1701,11 @@ document.querySelector(".api-settings-form").addEventListener("submit", (event) 
     const clientId = spotifyClientIdInput.value.trim();
     try {
         if (clientId) {
-            localStorage.setItem("clone-spotify:client-id", clientId);
+            localStorage.setItem(storageKeys.clientId, clientId);
+            localStorage.removeItem(storageKeys.legacyClientId);
         } else {
-            localStorage.removeItem("clone-spotify:client-id");
+            localStorage.removeItem(storageKeys.clientId);
+            localStorage.removeItem(storageKeys.legacyClientId);
         }
         spotifyClientId = clientId;
         document.querySelector(".api-settings-status").textContent = "Configuração salva neste navegador.";
@@ -1883,7 +1904,7 @@ document.querySelectorAll("[data-action]").forEach((button) => {
                     await installPrompt.prompt();
                     installPrompt = null;
                 } else {
-                    showDialog("Instalar aplicativo", "Para instalar este clone, use a opção de instalação do navegador quando ela estiver disponível.");
+                    showDialog("Instalar aplicativo", "Use a opção de instalação do navegador quando ela estiver disponível.");
                 }
                 break;
             case "notifications":

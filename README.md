@@ -8,18 +8,18 @@ Projeto open source para reunir busca, descoberta e reprodução de músicas em 
 - Spotify Web API opcional para metadados, mediante autenticação OAuth com PKCE.
 - Páginas de artistas, faixas, álbuns e playlists.
 - Aba **Novidades** para consultar lançamentos de artistas salvos.
-- Player com reprodução de faixas completas a partir de vários arquivos de áudio locais selecionados pelo usuário; prévias do Deezer continuam disponíveis quando fornecidas.
+- Player com reprodução de faixas completas a partir de vários arquivos de áudio locais selecionados pelo usuário; prévias do Deezer continuam disponíveis quando fornecidas. A seleção aceita apenas formatos de áudio.
 - Controles de fila, volume, busca por posição e salvamentos locais.
 - Configuração dos provedores centralizada em `public/js/config.js`.
 
 ## Tecnologias
 
 - HTML5 semântico.
-- CSS3 responsivo.
+- CSS3 responsivo e utilitários Tailwind CSS.
 - JavaScript Vanilla com `async`/`await` e Fetch API.
-- Node.js nativo, sem dependências de runtime.
+- Node.js nativo para o servidor; Tailwind CSS é dependência apenas de desenvolvimento.
 
-O estilo atual usa CSS próprio, não Tailwind CSS. A configuração de Tailwind e um processo de build podem ser adicionados em uma evolução futura, sem alterar a separação entre aplicação pública e servidor.
+Os componentes continuam estilizados com CSS próprio; Tailwind fornece utilitários pontuais sem aplicar reset global, preservando o layout existente.
 
 ## Estrutura
 
@@ -27,7 +27,8 @@ O estilo atual usa CSS próprio, não Tailwind CSS. A configuração de Tailwind
 .
 ├── public/
 │   ├── css/
-│   │   └── styles.css
+│   │   ├── styles.css
+│   │   └── tailwind.css
 │   ├── index.html
 │   ├── js/
 │   │   ├── app.js
@@ -38,7 +39,11 @@ O estilo atual usa CSS próprio, não Tailwind CSS. A configuração de Tailwind
 ├── .env.example
 ├── .gitignore
 ├── LICENSE
+├── package.json
+├── package-lock.json
 ├── README.md
+├── src/
+│   └── tailwind.css
 └── server.js
 ```
 
@@ -49,14 +54,21 @@ O servidor serve somente arquivos dentro de `public/`; configurações privadas 
 Requisitos: Node.js 18 ou mais recente.
 
 1. Clone o repositório e abra a pasta do projeto.
-2. Opcionalmente, copie `.env.example` para `.env` e informe um `SPOTIFY_CLIENT_ID` público.
-3. Inicie o servidor:
+2. Instale as dependências de desenvolvimento e gere os utilitários CSS:
 
    ```sh
-   node server.js
+   npm install
+   npm run build:css
    ```
 
-4. Acesse [http://127.0.0.1:8765/](http://127.0.0.1:8765/).
+3. Opcionalmente, copie `.env.example` para `.env` e informe um `SPOTIFY_CLIENT_ID` público.
+4. Inicie o servidor:
+
+   ```sh
+   npm start
+   ```
+
+5. Acesse [http://127.0.0.1:8765/](http://127.0.0.1:8765/).
 
 Não abra `public/index.html` diretamente pelo sistema de arquivos: as chamadas aos catálogos passam pelo servidor local para evitar problemas de CORS.
 
@@ -102,7 +114,7 @@ O player reproduz faixas completas a partir de arquivos de áudio escolhidos pel
 
 - Adicionar testes automatizados para os normalizadores, rotas e controles do player.
 - Avaliar uma integração de catálogo alternativa, como a iTunes Search API, como fallback.
-- Adicionar build opcional com Tailwind CSS e verificações automatizadas de acessibilidade.
+- Ampliar as verificações automatizadas de acessibilidade.
 - Permitir escolher e monitorar várias instâncias de metadados disponíveis.
 
 ## Licença

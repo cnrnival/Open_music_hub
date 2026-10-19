@@ -1,12 +1,12 @@
-/* Cores e tipografia compartilhadas mantêm a interface consistente entre telas.
-   Shared colors and typography keep the local clone visually consistent across screens. */
+/* Cores e tipografia compartilhadas mantêm a interface musical consistente.
+   Shared colors and typography keep the music interface consistent. */
 :root {
 	--surface: #121212;
 	--surface-raised: #242424;
 	--text-primary: #fff;
 	--text-secondary: #b3b3b3;
 	--text-muted: #7c7c7c;
-	--spotify-green: #1ed760;
+	--accent-green: #1ed760;
 	font-family: "Google Sans", Arial, sans-serif;
 	color: var(--text-primary);
 	background: #000;
@@ -168,7 +168,7 @@ input:focus-visible {
 	font-size: 18px;
 }
 
-.topbar__actions .topbar__premium,
+.topbar__actions .topbar__explore,
 .topbar__actions .topbar__install {
 	padding: 8px 14px;
 	border-radius: 20px;
@@ -526,7 +526,7 @@ input:focus-visible {
 }
 
 .library-item small .mdi {
-	color: var(--spotify-green);
+	color: var(--accent-green);
 	font-size: 14px;
 }
 
@@ -786,7 +786,7 @@ input:focus-visible {
 	height: 54px;
 	border: 0;
 	border-radius: 50%;
-	background: var(--spotify-green);
+	background: var(--accent-green);
 	color: #000;
 	cursor: pointer;
 	font-size: 30px;
@@ -803,7 +803,7 @@ input:focus-visible {
 }
 
 .detail-toolbar .icon-button[aria-pressed="true"] {
-	color: var(--spotify-green);
+	color: var(--accent-green);
 }
 
 .detail-track-heading,
@@ -1049,7 +1049,7 @@ input:focus-visible {
 	width: 35px;
 	height: 35px;
 	border-radius: 50%;
-	background: var(--spotify-green);
+	background: var(--accent-green);
 	color: #091c0d;
 	font-size: 23px;
 	font-weight: 800;
@@ -1211,7 +1211,7 @@ input:focus-visible {
 	width: 34px;
 	height: 34px;
 	border-radius: 50%;
-	background: var(--spotify-green);
+	background: var(--accent-green);
 	color: #000;
 	font-size: 23px;
 	opacity: 0;
@@ -1808,7 +1808,7 @@ input:focus-visible {
 }
 
 .music-player__secondary[aria-pressed="true"] {
-	color: var(--spotify-green);
+	color: var(--accent-green);
 	position: relative;
 }
 
@@ -1996,7 +1996,7 @@ input:focus-visible {
 		display: none;
 	}
 
-	.topbar__premium,
+	.topbar__explore,
 	.topbar__friends {
 		display: none !important;
 	}
@@ -2157,7 +2157,7 @@ input:focus-visible {
 }
 
 @media (max-width: 420px) {
-	.topbar__actions .topbar__premium {
+	.topbar__actions .topbar__explore {
 		display: none !important;
 	}
 

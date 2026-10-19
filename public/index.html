@@ -9,6 +9,7 @@
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+	<link rel="stylesheet" href="css/tailwind.css">
 	<link rel="stylesheet" href="css/styles.css">
 	<script src="js/config.js" defer></script>
 	<script src="js/app.js" defer></script>
@@ -17,7 +18,7 @@
 	<!-- A navegação global fica acima da biblioteca, da área principal e do player fixo.
 	     Global navigation stays above the persistent library, main view, and player. -->
 	<header class="topbar">
-		<button class="brand" type="button" aria-label="Página inicial"><span aria-hidden="true">•••</span></button>
+		<button class="brand" type="button" aria-label="Página inicial"><span class="font-semibold tracking-[0.2em]" aria-hidden="true">•••</span></button>
 		<div class="topbar__navigation">
 			<button class="icon-button topbar__home" type="button" aria-label="Início"><span class="mdi mdi-home" aria-hidden="true"></span></button>
 			<div class="search-box">
@@ -27,7 +28,7 @@
 			</div>
 		</div>
 		<nav class="topbar__actions" aria-label="Conta e notificações">
-			<button class="icon-button topbar__premium" type="button" data-action="explore">Explorar música</button>
+			<button class="icon-button topbar__explore" type="button" data-action="explore">Explorar música</button>
 			<button class="icon-button topbar__install" type="button" data-action="install"><span class="mdi mdi-download-circle-outline" aria-hidden="true"></span> Instalar aplicativo</button>
 			<button class="icon-button api-settings-button" type="button" aria-label="Configurar APIs" data-action="api-settings"><span class="mdi mdi-cog-outline" aria-hidden="true"></span></button>
 			<button class="icon-button" type="button" aria-label="Novidades e lançamentos" data-action="notifications"><span class="mdi mdi-bell-outline" aria-hidden="true"></span></button>
@@ -55,9 +56,9 @@
 			</div>
 			<div class="import-card">
 				<button class="import-card__close" type="button" aria-label="Fechar aviso"><span class="mdi mdi-close" aria-hidden="true"></span></button>
-				<strong>Importe músicas de outros apps</strong>
-				<span>Traga suas playlists, músicas e artistas.</span>
-				<button class="import-card__button" type="button">Importar biblioteca</button>
+				<strong>Carregue músicas completas</strong>
+				<span>Selecione arquivos de áudio do seu dispositivo para montar uma fila local.</span>
+				<button class="import-card__button" type="button">Escolher arquivos</button>
 				<span class="import-card__music mdi mdi-music-note" aria-hidden="true"></span>
 			</div>
 			<div class="library-panel__tools">
@@ -228,10 +229,10 @@
 	</div>
 	<button class="restore-now-playing" type="button" hidden>Mostrar painel da faixa</button>
 
-	<!-- O elemento de áudio nativo reproduz arquivos locais e prévias dos catálogos no player fixo.
-	     The native audio element powers local files and catalog previews in the fixed player. -->
+	<!-- O elemento de áudio nativo reproduz faixas locais e prévias autorizadas dos catálogos.
+	     The native audio element plays local tracks and authorized catalog previews. -->
 	<footer class="music-player">
-		<input class="music-player__file-input" id="audio-file" type="file" accept="audio/*,video/mp4,.flac,.wma,.aiff,.alac" multiple>
+		<input class="music-player__file-input" id="audio-file" type="file" accept="audio/*,.flac,.wma,.aiff,.alac" multiple>
 		<audio class="music-player__audio" preload="metadata"></audio>
 		<div class="Play-music">
 			<button class="Pplay-music__cover" type="button" aria-label="Carregar músicas completas do dispositivo" title="Carregar músicas completas do dispositivo"><span class="mdi mdi-music" aria-hidden="true"></span></button>

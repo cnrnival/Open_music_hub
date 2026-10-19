@@ -1,0 +1,12 @@
+{
+  "name": "open-music-hub",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/css/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "tailwindcss": "^4.3.0"
+  }
+}
