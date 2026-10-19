@@ -849,11 +849,9 @@ async function loadArtistSupplemental(item) {
         }
     } else if (audioDbResult.status === "rejected") {
         console.error("TheAudioDB artist lookup failed.", audioDbResult.reason);
-        errors.push(String(audioDbResult.reason?.message || "").includes("AUDIODB_API_KEY")
-            ? "configure AUDIODB_API_KEY no .env para habilitar a biografia"
-            : "biografia indisponível");
+        errors.push("biografia TheAudioDB indisponível");
     } else if (!audioDbEnabled) {
-        errors.push("biografia TheAudioDB V2 desativada (requer chave Premium)");
+        errors.push("biografia TheAudioDB indisponível");
     }
 
     if (musicBrainzResult.status === "fulfilled" && musicBrainzResult.value.artist) {

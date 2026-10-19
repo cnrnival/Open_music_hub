@@ -51,6 +51,7 @@ Os componentes continuam estilizados com CSS próprio; Tailwind fornece utilitá
 │   └── tailwind.css
 ├── server.js
 ├── tests/
+│   ├── api-routes.test.mjs
 │   └── playback.test.mjs
 └── vercel.json
 ```
@@ -74,12 +75,11 @@ Requisitos: Node.js 18 ou mais recente.
    ```env
    SPOTIFY_CLIENT_ID=
    JAMENDO_CLIENT_ID=
-   AUDIODB_API_KEY=
    GENIUS_ACCESS_TOKEN=
    MUSIXMATCH_API_KEY=
    ```
 
-   `SPOTIFY_CLIENT_ID` é público. `JAMENDO_CLIENT_ID` habilita a busca Jamendo. A integração TheAudioDB V2 exige uma chave Premium; configure `AUDIODB_API_KEY` somente após obter uma chave própria. Genius e Musixmatch estão reservados para integração futura. Nunca coloque tokens ou segredos privados no `config.js`, no navegador ou no Git.
+   `SPOTIFY_CLIENT_ID` é público. `JAMENDO_CLIENT_ID` habilita a busca Jamendo. A TheAudioDB usa a chave pública de teste `123`, centralizada em `public/js/config.js`, sem configuração no `.env`; essa chave tem limites e não deve ser tratada como credencial privada nem como garantia de disponibilidade. Genius e Musixmatch estão reservados para integração futura. Nunca coloque tokens ou segredos privados no `config.js`, no navegador ou no Git.
 4. Inicie o servidor:
 
    ```sh
@@ -113,10 +113,11 @@ As URLs base, endpoints, rotas locais e parâmetros públicos ficam centralizado
 - Fornece metadados de vídeos e links para a página oficial.
 - O servidor filtra as respostas e não encaminha URLs de streams ou formatos adaptativos.
 
-### TheAudioDB e MusicBrainz
+### TheAudioDB v1 e MusicBrainz
 
-- [Guia da TheAudioDB API](https://www.theaudiodb.com/api_guide.php): complementa perfis com biografias, imagens, gênero e país. A configuração centralizada inclui pesquisa de artistas/álbuns/faixas, lookup por ID ou MusicBrainz ID e listagem de discografia via V2. A chave pública de teste `2` do serviço legado V1 não autoriza chamadas V2; V2 exige chave Premium enviada pelo servidor no cabeçalho `X-API-KEY`. Configure `AUDIODB_API_KEY` no `.env`; sem ela, as rotas respondem que a configuração é necessária.
-- Os builders de endpoints V2 estão em `API_CONFIG.providers.audioDb.endpoints`: `search.artist/album/track`, `lookup.artist/album/track` e suas variantes `*ByMusicBrainz`, além de `list.discography`. `providerPath()` acrescenta o prefixo `api/v2/json/`; a interface usa os caminhos locais `artistSearchPath`, `searchPath`, `lookupPath` e `discographyPath`, encaminhados pelo servidor com a chave privada.
+- A aplicação usa a [API v1 da TheAudioDB](https://www.theaudiodb.com/), com a chave pública de teste `123` e o prefixo `api/v1/json/123/`. A chave `2` não respondeu neste teste; a `123` respondeu para busca de artista. Esse acesso público está sujeito a limites e disponibilidade do provedor.
+- `API_CONFIG.providers.audioDb.endpoints` centraliza os endpoints v1 de pesquisa de artista, discografia, álbum e faixa; lookup de artista/álbum/faixa por ID ou MusicBrainz ID; vídeos musicais; top 10; mais amados; e tendências. As chamadas do aplicativo passam por `/api/audiodb` no servidor, que monta o caminho contra a origem fixa do provedor e valida parâmetros, sem oferecer um proxy de URL arbitrária.
+- A disponibilidade de cada endpoint pode variar conforme o plano e o estado do serviço. Em uma verificação recente, `search.php`, `discography.php`, `searchalbum.php`, `searchtrack.php`, `artist.php` e `trending.php` responderam com a chave `123`; os endpoints `mostloved.php` retornaram 404. Erros do provedor são expostos como falha, não convertidos em resultados inventados.
 - [Documentação do MusicBrainz Web Service](https://musicbrainz.org/doc/Development/XML_Web_Service/Version_2): complementa perfis com dados de artistas e grupos de lançamento. Não exige chave; o servidor envia um `User-Agent` identificável e serializa as chamadas para respeitar o limite de uso.
 
 ### Lyrics.ovh
@@ -159,7 +160,7 @@ O player reproduz faixas completas a partir de arquivos de áudio escolhidos pel
 3. Configure no projeto Vercel somente as variáveis dos provedores que pretende habilitar, em **Settings > Environment Variables**, e faça um novo deploy:
    - `JAMENDO_CLIENT_ID` (opcional, gratuito conforme cadastro/termos do provedor) habilita faixas Jamendo elegíveis.
    - `SPOTIFY_CLIENT_ID` (opcional) habilita metadados Spotify; configure também a URL pública do site como Redirect URI no Spotify Developer Dashboard.
-   - `AUDIODB_API_KEY` só é necessária para a API V2 da TheAudioDB, que exige chave Premium. Não é necessária para busca Deezer, MusicBrainz, letras Lyrics.ovh ou para iniciar a aplicação.
+   - TheAudioDB usa a chave pública de teste `123` para v1, sem variável de ambiente. Esse acesso pode ser limitado ou descontinuado pelo provedor.
 4. Não envie um arquivo `.env` para o repositório ou para os arquivos estáticos; cadastre as variáveis no painel. `.vercel/` e arquivos `.env` estão ignorados pelo Git.
 
 O deploy da interface e das rotas serverless não transforma arquivos selecionados pelo usuário em armazenamento persistente. O armazenamento da biblioteca e das contagens é local ao navegador. Antes de publicar qualquer arquivo em `public/music/`, confirme que você tem autorização para distribuí-lo publicamente.

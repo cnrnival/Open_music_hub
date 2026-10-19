@@ -107,34 +107,19 @@ function requiredQuery(url, names, maxLength = 120) {
     return values;
 }
 
-function getAudioDbEntityList(payload, kind) {
-    const collection = kind === "discography" ? payload.discography : payload[`${kind}s`];
+function getAudioDbEntityList(payload, collectionName) {
+    const collection = payload[collectionName];
     if (Array.isArray(collection)) {
         return collection;
     }
-    if (collection && typeof collection === "object") {
-        return [collection];
-    }
-    const singular = payload[kind];
-    return singular && typeof singular === "object" ? [singular] : [];
+    return collection && typeof collection === "object" ? [collection] : [];
 }
 
-// Keep the Premium API key on the server and send it only in TheAudioDB's required header.
-// Mantém a chave Premium no servidor e a envia somente no cabeçalho exigido pela TheAudioDB.
 async function fetchAudioDb(resourcePath) {
-    const apiKey = environment[API_CONFIG.providers.audioDb.apiKeyEnvironmentVariable];
-    if (!apiKey) {
-        return { error: "Configure uma chave Premium em AUDIODB_API_KEY no arquivo .env local." };
-    }
-    const payload = await fetchJsonFromProvider(
+    return fetchJsonFromProvider(
         API_CONFIG.providers.audioDb.baseUrl,
-        API_CONFIG.providers.audioDb.providerPath(resourcePath),
-        { "X-API-KEY": apiKey }
+        API_CONFIG.providers.audioDb.providerPath(resourcePath)
     );
-    if (payload.Message) {
-        throw new Error(String(payload.Message));
-    }
-    return { payload };
 }
 
 function normalizeAudioDbArtist(artist) {
@@ -150,68 +135,162 @@ function normalizeAudioDbArtist(artist) {
     };
 }
 
-async function handleAudioDbSearch(url, response, kind) {
-    const [query] = requiredQuery(url, ["q"]) || [];
-    if (!query) {
-        sendJson(response, 400, { error: "A valid search term is required." });
-        return;
-    }
-    const { error, payload } = await fetchAudioDb(
-        API_CONFIG.providers.audioDb.endpoints.search[kind](query)
-    );
-    if (error) {
-        sendJson(response, 503, { error });
-        return;
-    }
-    const results = getAudioDbEntityList(payload, kind);
-    sendJson(response, 200, {
-        provider: "audiodb",
-        results: kind === "artist" ? results.map(normalizeAudioDbArtist) : results
-    });
+function requiredAudioDbId(value, musicBrainz = false) {
+    return musicBrainz
+        ? /^[0-9a-f-]{36}$/i.test(value)
+        : /^\d+$/.test(value);
 }
 
-async function handleAudioDbLookup(url, response, lookupKind) {
-    const values = requiredQuery(url, ["id"]);
-    const [kind, musicBrainzSuffix] = lookupKind.split("_");
-    const musicBrainz = musicBrainzSuffix === "mb";
-    const validId = musicBrainz
-        ? /^[0-9a-f-]{36}$/i.test(values?.[0] || "")
-        : /^\d+$/.test(values?.[0] || "");
-    if (!validId || !["artist", "album", "track"].includes(kind)) {
-        sendJson(response, 400, { error: "A valid TheAudioDB resource ID is required." });
-        return;
-    }
-    const endpointName = musicBrainz ? `${kind}ByMusicBrainz` : kind;
-    const { error, payload } = await fetchAudioDb(
-        API_CONFIG.providers.audioDb.endpoints.lookup[endpointName](values[0])
-    );
-    if (error) {
-        sendJson(response, 503, { error });
-        return;
-    }
-    const results = getAudioDbEntityList(payload, kind);
-    sendJson(response, 200, {
-        provider: "audiodb",
-        item: kind === "artist" && results[0] ? normalizeAudioDbArtist(results[0]) : results[0] || null
-    });
-}
+async function handleAudioDbAction(url, response) {
+    const config = API_CONFIG.providers.audioDb;
+    const action = url.searchParams.get("action") || "";
+    const artistId = url.searchParams.get("id") || "";
+    let resourcePath = "";
+    let collectionName = "";
+    let item = false;
+    let normalizeArtist = false;
 
-async function handleAudioDbDiscography(url, response) {
-    const [artistId] = requiredQuery(url, ["id"]) || [];
-    if (!artistId || !/^\d+$/.test(artistId)) {
-        sendJson(response, 400, { error: "A valid numeric artist ID is required." });
+    switch (action) {
+        case "search-artist": {
+            const [artist] = requiredQuery(url, ["artist"]) || [];
+            if (artist) {
+                resourcePath = config.endpoints.searchArtist(artist);
+                collectionName = "artists";
+                normalizeArtist = true;
+            }
+            break;
+        }
+        case "search-discography": {
+            const [artist] = requiredQuery(url, ["artist"]) || [];
+            if (artist) {
+                resourcePath = config.endpoints.searchDiscography(artist);
+                collectionName = "album";
+            }
+            break;
+        }
+        case "search-discography-mb": {
+            const [mbid] = requiredQuery(url, ["mbid"]) || [];
+            if (mbid && requiredAudioDbId(mbid, true)) {
+                resourcePath = config.endpoints.searchDiscographyMB(mbid);
+                collectionName = "album";
+            }
+            break;
+        }
+        case "search-album": {
+            const values = requiredQuery(url, ["artist", "album"]);
+            if (values) {
+                resourcePath = config.endpoints.searchAlbum(...values);
+                collectionName = "album";
+            }
+            break;
+        }
+        case "search-track": {
+            const values = requiredQuery(url, ["artist", "track"]);
+            if (values) {
+                resourcePath = config.endpoints.searchTrack(...values);
+                collectionName = "track";
+            }
+            break;
+        }
+        case "lookup-artist":
+        case "lookup-artist-mb":
+        case "lookup-artist-social":
+        case "lookup-album":
+        case "lookup-album-by-album-id":
+        case "lookup-album-mb":
+        case "lookup-track-by-album":
+        case "lookup-track-by-id":
+        case "lookup-track-mb": {
+            const musicBrainz = action.endsWith("-mb");
+            if (!requiredAudioDbId(artistId, musicBrainz)) {
+                break;
+            }
+            const endpointByAction = {
+                "lookup-artist": ["lookupArtist", "artists", true],
+                "lookup-artist-mb": ["lookupArtistMB", "artists", true],
+                "lookup-artist-social": ["lookupArtistSocial", "artists", false],
+                "lookup-album": ["lookupAlbum", "album", false],
+                "lookup-album-by-album-id": ["lookupAlbumByAlbumId", "album", false],
+                "lookup-album-mb": ["lookupAlbumMB", "album", false],
+                "lookup-track-by-album": ["lookupTrackByAlbum", "track", false],
+                "lookup-track-by-id": ["lookupTrackById", "track", false],
+                "lookup-track-mb": ["lookupTrackMB", "track", false]
+            };
+            const [endpointName, collection, normalize] = endpointByAction[action];
+            resourcePath = config.endpoints[endpointName](artistId);
+            collectionName = collection;
+            item = true;
+            normalizeArtist = normalize;
+            break;
+        }
+        case "music-videos":
+        case "music-videos-mb": {
+            const musicBrainz = action.endsWith("-mb");
+            if (!requiredAudioDbId(artistId, musicBrainz)) {
+                break;
+            }
+            resourcePath = musicBrainz
+                ? config.endpoints.musicVideosMB(artistId)
+                : config.endpoints.musicVideos(artistId);
+            collectionName = "mvids";
+            break;
+        }
+        case "track-top10": {
+            const [artist] = requiredQuery(url, ["artist"]) || [];
+            if (artist) {
+                resourcePath = config.endpoints.trackTop10(artist);
+                collectionName = "track";
+            }
+            break;
+        }
+        case "most-loved-tracks":
+            resourcePath = config.endpoints.mostLovedTracks;
+            collectionName = "track";
+            break;
+        case "most-loved-albums":
+            resourcePath = config.endpoints.mostLovedAlbums;
+            collectionName = "album";
+            break;
+        case "trending": {
+            const country = url.searchParams.get("country") || "us";
+            const type = url.searchParams.get("type") || "itunes";
+            const format = url.searchParams.get("format") || "albums";
+            if (!/^[a-z]{2}$/i.test(country) || !/^[a-z]{1,20}$/i.test(type)
+                || !["albums", "tracks"].includes(format)) {
+                break;
+            }
+            resourcePath = config.endpoints.trending(country, type, format);
+            collectionName = "trending";
+            break;
+        }
+        default:
+            break;
+    }
+
+    if (!resourcePath) {
+        sendJson(response, 400, { error: "Unsupported TheAudioDB action or invalid parameters." });
         return;
     }
-    const { error, payload } = await fetchAudioDb(
-        API_CONFIG.providers.audioDb.endpoints.list.discography(artistId)
-    );
-    if (error) {
-        sendJson(response, 503, { error });
+
+    const payload = await fetchAudioDb(resourcePath);
+    if (payload.Message) {
+        const error = new Error(String(payload.Message));
+        error.statusCode = 404;
+        error.provider = "audiodb";
+        throw error;
+    }
+    const results = getAudioDbEntityList(payload, collectionName);
+    if (item) {
+        const result = results[0] || null;
+        sendJson(response, 200, {
+            provider: "audiodb",
+            item: result && normalizeArtist ? normalizeAudioDbArtist(result) : result
+        });
         return;
     }
     sendJson(response, 200, {
         provider: "audiodb",
-        results: getAudioDbEntityList(payload, "discography")
+        results: normalizeArtist ? results.map(normalizeAudioDbArtist) : results
     });
 }
 
@@ -567,7 +646,7 @@ async function handleRequest(request, response) {
             sendJson(response, 200, {
                 spotifyClientId: environment.SPOTIFY_CLIENT_ID || "",
                 jamendoEnabled: Boolean(environment.JAMENDO_CLIENT_ID),
-                audioDbEnabled: Boolean(environment[API_CONFIG.providers.audioDb.apiKeyEnvironmentVariable]),
+                audioDbEnabled: true,
                 lyricsProviders: {
                     lyricsOvh: true,
                     genius: Boolean(environment.GENIUS_ACCESS_TOKEN),
@@ -577,46 +656,11 @@ async function handleRequest(request, response) {
             return;
         }
         if (url.pathname === API_CONFIG.providers.audioDb.proxyBasePath) {
-            const action = url.searchParams.get("action");
-            const kind = url.searchParams.get("kind") || "";
-            if (action === "search" && ["artist", "album", "track"].includes(kind)) {
-                await handleAudioDbSearch(url, response, kind);
-                return;
-            }
-            if (
-                action === "lookup"
-                && ["artist", "artist_mb", "album", "album_mb", "track", "track_mb"].includes(kind)
-            ) {
-                await handleAudioDbLookup(url, response, kind);
-                return;
-            }
-            if (action === "discography") {
-                await handleAudioDbDiscography(url, response);
-                return;
-            }
-            sendJson(response, 400, { error: "Unsupported TheAudioDB action or resource." });
+            await handleAudioDbAction(url, response);
             return;
         }
         if (url.pathname === API_CONFIG.providers.musicBrainz.proxyBasePath) {
             await handleMusicBrainzArtist(url, response);
-            return;
-        }
-        const audioDbSearch = url.pathname.match(
-            new RegExp(`^${API_CONFIG.providers.audioDb.searchRoute}/(artist|album|track)$`)
-        );
-        if (audioDbSearch) {
-            await handleAudioDbSearch(url, response, audioDbSearch[1]);
-            return;
-        }
-        const audioDbLookup = url.pathname.match(
-            new RegExp(`^${API_CONFIG.providers.audioDb.lookupRoute}/(artist|artist_mb|album|album_mb|track|track_mb)$`)
-        );
-        if (audioDbLookup) {
-            await handleAudioDbLookup(url, response, audioDbLookup[1]);
-            return;
-        }
-        if (url.pathname === API_CONFIG.providers.audioDb.discographyRoute) {
-            await handleAudioDbDiscography(url, response);
             return;
         }
         if (url.pathname === API_CONFIG.providers.musicBrainz.artistSearchRoute) {
@@ -706,7 +750,12 @@ async function handleRequest(request, response) {
     } catch (error) {
         console.error("Local API request failed.", error);
         if (!response.headersSent) {
-            sendJson(response, 502, { error: "Music provider request failed. Try again later." });
+            const statusCode = error.statusCode === 404 ? 404 : 502;
+            sendJson(response, statusCode, {
+                error: error.provider === "audiodb"
+                    ? "TheAudioDB did not find a matching resource."
+                    : "Music provider request failed. Try again later."
+            });
         } else {
             response.destroy(error);
         }
