@@ -11,6 +11,8 @@ const projectRoot = __dirname;
 const publicRoot = path.join(projectRoot, "public");
 const localEnvPath = path.join(projectRoot, ".env");
 const environment = { ...process.env };
+let musicBrainzQueue = Promise.resolve();
+let lastMusicBrainzRequestAt = 0;
 const mimeTypes = new Map([
     [".css", "text/css; charset=utf-8"],
     [".html", "text/html; charset=utf-8"],
@@ -19,6 +21,7 @@ const mimeTypes = new Map([
     [".json", "application/json; charset=utf-8"],
     [".mp3", "audio/mpeg"],
     [".mp4", "video/mp4"],
+    [".mjs", "text/javascript; charset=utf-8"],
     [".png", "image/png"],
     [".svg", "image/svg+xml"],
     [".webp", "image/webp"]
@@ -42,7 +45,8 @@ function sendJson(response, statusCode, payload) {
     response.writeHead(statusCode, {
         "Cache-Control": "no-store",
         "Content-Type": "application/json; charset=utf-8",
-        "X-Content-Type-Options": "nosniff"
+        "X-Content-Type-Options": "nosniff",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
     });
     response.end(JSON.stringify(payload));
 }
@@ -70,7 +74,7 @@ function deezerResourcePath(resource, id) {
 // Fetch Deezer without exposing the RapidAPI key supplied in chat; the public API needs no key.
 async function fetchDeezer(resourcePath) {
     const url = new URL(resourcePath, API_CONFIG.providers.deezer.baseUrl);
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!upstream.ok) {
         throw new Error(`Deezer responded with HTTP ${upstream.status}.`);
     }
@@ -79,6 +83,302 @@ async function fetchDeezer(resourcePath) {
         throw new Error(payload.error.message || "Deezer could not complete the request.");
     }
     return payload;
+}
+
+async function fetchJsonFromProvider(baseUrl, resourcePath, headers = {}, timeoutMs = 8000) {
+    const url = new URL(resourcePath, baseUrl);
+    const upstream = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!upstream.ok) {
+        const error = new Error(`Provider responded with HTTP ${upstream.status}.`);
+        error.statusCode = upstream.status;
+        throw error;
+    }
+    return upstream.json();
+}
+
+function requiredQuery(url, names, maxLength = 120) {
+    const values = names.map((name) => (url.searchParams.get(name) || "").trim());
+    if (values.some((value) => !value || value.length > maxLength)) {
+        return null;
+    }
+    return values;
+}
+
+function getAudioDbEntityList(payload, kind) {
+    const collection = kind === "discography" ? payload.discography : payload[`${kind}s`];
+    if (Array.isArray(collection)) {
+        return collection;
+    }
+    if (collection && typeof collection === "object") {
+        return [collection];
+    }
+    const singular = payload[kind];
+    return singular && typeof singular === "object" ? [singular] : [];
+}
+
+// Keep the Premium API key on the server and send it only in TheAudioDB's required header.
+// Mantém a chave Premium no servidor e a envia somente no cabeçalho exigido pela TheAudioDB.
+async function fetchAudioDb(resourcePath) {
+    const apiKey = environment[API_CONFIG.providers.audioDb.apiKeyEnvironmentVariable];
+    if (!apiKey) {
+        return { error: "Configure uma chave Premium em AUDIODB_API_KEY no arquivo .env local." };
+    }
+    const payload = await fetchJsonFromProvider(
+        API_CONFIG.providers.audioDb.baseUrl,
+        API_CONFIG.providers.audioDb.providerPath(resourcePath),
+        { "X-API-KEY": apiKey }
+    );
+    if (payload.Message) {
+        throw new Error(String(payload.Message));
+    }
+    return { payload };
+}
+
+function normalizeAudioDbArtist(artist) {
+    return {
+        id: String(artist.idArtist || ""),
+        name: String(artist.strArtist || ""),
+        biography: String(artist.strBiographyPT || artist.strBiographyEN || ""),
+        thumb: String(artist.strArtistThumb || ""),
+        banner: String(artist.strArtistFanart || ""),
+        logo: String(artist.strArtistLogo || ""),
+        genre: String(artist.strGenre || ""),
+        country: String(artist.strCountry || "")
+    };
+}
+
+async function handleAudioDbSearch(url, response, kind) {
+    const [query] = requiredQuery(url, ["q"]) || [];
+    if (!query) {
+        sendJson(response, 400, { error: "A valid search term is required." });
+        return;
+    }
+    const { error, payload } = await fetchAudioDb(
+        API_CONFIG.providers.audioDb.endpoints.search[kind](query)
+    );
+    if (error) {
+        sendJson(response, 503, { error });
+        return;
+    }
+    const results = getAudioDbEntityList(payload, kind);
+    sendJson(response, 200, {
+        provider: "audiodb",
+        results: kind === "artist" ? results.map(normalizeAudioDbArtist) : results
+    });
+}
+
+async function handleAudioDbLookup(url, response, lookupKind) {
+    const values = requiredQuery(url, ["id"]);
+    const [kind, musicBrainzSuffix] = lookupKind.split("_");
+    const musicBrainz = musicBrainzSuffix === "mb";
+    const validId = musicBrainz
+        ? /^[0-9a-f-]{36}$/i.test(values?.[0] || "")
+        : /^\d+$/.test(values?.[0] || "");
+    if (!validId || !["artist", "album", "track"].includes(kind)) {
+        sendJson(response, 400, { error: "A valid TheAudioDB resource ID is required." });
+        return;
+    }
+    const endpointName = musicBrainz ? `${kind}ByMusicBrainz` : kind;
+    const { error, payload } = await fetchAudioDb(
+        API_CONFIG.providers.audioDb.endpoints.lookup[endpointName](values[0])
+    );
+    if (error) {
+        sendJson(response, 503, { error });
+        return;
+    }
+    const results = getAudioDbEntityList(payload, kind);
+    sendJson(response, 200, {
+        provider: "audiodb",
+        item: kind === "artist" && results[0] ? normalizeAudioDbArtist(results[0]) : results[0] || null
+    });
+}
+
+async function handleAudioDbDiscography(url, response) {
+    const [artistId] = requiredQuery(url, ["id"]) || [];
+    if (!artistId || !/^\d+$/.test(artistId)) {
+        sendJson(response, 400, { error: "A valid numeric artist ID is required." });
+        return;
+    }
+    const { error, payload } = await fetchAudioDb(
+        API_CONFIG.providers.audioDb.endpoints.list.discography(artistId)
+    );
+    if (error) {
+        sendJson(response, 503, { error });
+        return;
+    }
+    sendJson(response, 200, {
+        provider: "audiodb",
+        results: getAudioDbEntityList(payload, "discography")
+    });
+}
+
+function fetchMusicBrainz(resourcePath) {
+    const request = musicBrainzQueue.then(async () => {
+        const delay = Math.max(0, 1100 - (Date.now() - lastMusicBrainzRequestAt));
+        if (delay) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+        lastMusicBrainzRequestAt = Date.now();
+        return fetchJsonFromProvider(
+            API_CONFIG.providers.musicBrainz.baseUrl,
+            resourcePath,
+            { "User-Agent": "OpenMusicHub/1.0 (https://github.com/cnrnival/Clone_Spotify)" },
+            3500
+        );
+    });
+    musicBrainzQueue = request.catch(() => {});
+    return request;
+}
+
+async function handleMusicBrainzArtist(url, response) {
+    const [name] = requiredQuery(url, ["q"]) || [];
+    if (!name) {
+        sendJson(response, 400, { error: "A valid artist name is required." });
+        return;
+    }
+    const search = await fetchMusicBrainz(API_CONFIG.providers.musicBrainz.endpoints.searchArtist(name));
+    const artist = search.artists?.[0];
+    if (!artist) {
+        sendJson(response, 200, { provider: "musicbrainz", artist: null, releases: [] });
+        return;
+    }
+    const releasePayload = await fetchMusicBrainz(
+        API_CONFIG.providers.musicBrainz.endpoints.artistReleases(artist.id)
+    );
+    sendJson(response, 200, {
+        provider: "musicbrainz",
+        artist: {
+            id: String(artist.id || ""),
+            name: String(artist.name || ""),
+            disambiguation: String(artist.disambiguation || ""),
+            country: String(artist.country || ""),
+            beginDate: String(artist["life-span"]?.begin || ""),
+            endDate: String(artist["life-span"]?.end || "")
+        },
+        releases: (releasePayload["release-groups"] || []).map((release) => ({
+            id: String(release.id || ""),
+            title: String(release.title || ""),
+            type: String(release["primary-type"] || ""),
+            firstReleaseDate: String(release["first-release-date"] || "")
+        }))
+    });
+}
+
+async function handleLyrics(url, response) {
+    const values = requiredQuery(url, ["artist", "title"]);
+    if (!values) {
+        sendJson(response, 400, { error: "Artist and track title are required." });
+        return;
+    }
+    const [artist, title] = values;
+    const resourcePath = `${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
+    let payload;
+    try {
+        payload = await fetchJsonFromProvider(API_CONFIG.providers.lyrics.baseUrl, resourcePath);
+    } catch (error) {
+        if (error.statusCode === 404) {
+            sendJson(response, 404, { error: "Lyrics were not found for this track." });
+            return;
+        }
+        throw error;
+    }
+    if (typeof payload.lyrics !== "string" || !payload.lyrics.trim()) {
+        sendJson(response, 404, { error: "Lyrics were not found for this track." });
+        return;
+    }
+    sendJson(response, 200, {
+        provider: "lyrics.ovh",
+        artist,
+        title,
+        lyrics: payload.lyrics
+    });
+}
+
+// Restrict full-track playback to Jamendo's own HTTPS hosts.
+// Restringe a reprodução de faixas completas aos domínios HTTPS oficiais do Jamendo.
+function getJamendoPlaybackUrl(value) {
+    if (typeof value !== "string") {
+        return "";
+    }
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:"
+            && (url.hostname === "jamendo.com" || url.hostname.endsWith(".jamendo.com"))
+            ? url.href
+            : "";
+    } catch {
+        return "";
+    }
+}
+
+// Require an official Creative Commons URL before exposing a downloadable full track.
+// Exige uma URL oficial Creative Commons antes de liberar a faixa completa para reprodução.
+function getJamendoLicenseUrl(value) {
+    if (typeof value !== "string") {
+        return "";
+    }
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:"
+            && (url.hostname === "creativecommons.org" || url.hostname.endsWith(".creativecommons.org"))
+            ? url.href
+            : "";
+    } catch {
+        return "";
+    }
+}
+
+async function handleJamendoSearch(url, response) {
+    const [query] = requiredQuery(url, ["q"]) || [];
+    if (!query) {
+        sendJson(response, 400, { error: "A valid search term is required." });
+        return;
+    }
+    const clientId = environment.JAMENDO_CLIENT_ID;
+    if (!clientId) {
+        sendJson(response, 503, {
+            error: "Jamendo is not configured. Set JAMENDO_CLIENT_ID in the local .env file."
+        });
+        return;
+    }
+
+    const endpoint = new URL(
+        API_CONFIG.providers.jamendo.endpoints.search(query),
+        API_CONFIG.providers.jamendo.baseUrl
+    );
+    endpoint.searchParams.set("client_id", clientId);
+    const payload = await fetchJsonFromProvider(
+        API_CONFIG.providers.jamendo.baseUrl,
+        `${endpoint.pathname}${endpoint.search}`
+    );
+    if (payload.headers?.status && payload.headers.status !== "success") {
+        throw new Error(payload.headers.error_message || "Jamendo could not complete the request.");
+    }
+    const tracks = (payload.results || []).map((track) => {
+        const licenseUrl = getJamendoLicenseUrl(track.license_ccurl);
+        const downloadable = track.audiodownload_allowed === true
+            || track.audiodownload_allowed === "true"
+            || track.audiodownload_allowed === 1;
+        return {
+            id: String(track.id || ""),
+            title: String(track.name || ""),
+            artistName: String(track.artist_name || ""),
+            artistId: String(track.artist_id || ""),
+            albumName: String(track.album_name || ""),
+            albumId: String(track.album_id || ""),
+            image: String(track.album_image || ""),
+            durationSeconds: Number(track.duration) || 0,
+            externalUrl: String(track.shareurl || ""),
+            licenseUrl,
+            playbackUrl: downloadable && licenseUrl
+                ? getJamendoPlaybackUrl(track.audiodownload)
+                : ""
+        };
+    }).filter((track) => track.id && track.title);
+    sendJson(response, 200, { provider: "jamendo", results: tracks });
 }
 
 // Encaminha os endpoints públicos de busca para evitar restrições de origem cruzada no navegador.
@@ -132,7 +432,7 @@ async function handleDeezerDetail(url, response) {
 // Consulta apenas metadados de vídeo no Invidious e omite todos os campos de streams de mídia.
 async function fetchInvidious(resourcePath) {
     const url = new URL(resourcePath, API_CONFIG.providers.invidious.baseUrl);
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!upstream.ok) {
         throw new Error(`Invidious responded with HTTP ${upstream.status}.`);
     }
@@ -233,7 +533,8 @@ function serveStaticFile(request, response, filePath) {
                 "Content-Type": contentType,
                 "Referrer-Policy": "no-referrer",
                 "X-Frame-Options": "DENY",
-                "X-Content-Type-Options": "nosniff"
+                "X-Content-Type-Options": "nosniff",
+                "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
             });
             fs.createReadStream(filePath, { start, end }).pipe(response);
             return;
@@ -245,7 +546,8 @@ function serveStaticFile(request, response, filePath) {
             "Content-Type": contentType,
             "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
-            "X-Content-Type-Options": "nosniff"
+            "X-Content-Type-Options": "nosniff",
+            "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
         });
         fs.createReadStream(filePath).pipe(response);
     });
@@ -253,7 +555,7 @@ function serveStaticFile(request, response, filePath) {
 
 // Encaminha APIs da mesma origem e entrega somente arquivos da pasta pública.
 // Route same-origin APIs and serve files only from the public directory.
-const server = http.createServer(async (request, response) => {
+async function handleRequest(request, response) {
     const url = new URL(request.url, "http://localhost");
     if (request.method !== "GET" && request.method !== "HEAD") {
         sendJson(response, 405, { error: "Only GET and HEAD requests are supported." });
@@ -263,8 +565,45 @@ const server = http.createServer(async (request, response) => {
     try {
         if (url.pathname === API_CONFIG.serverRoutes.configuration) {
             sendJson(response, 200, {
-                spotifyClientId: environment.SPOTIFY_CLIENT_ID || ""
+                spotifyClientId: environment.SPOTIFY_CLIENT_ID || "",
+                jamendoEnabled: Boolean(environment.JAMENDO_CLIENT_ID),
+                audioDbEnabled: Boolean(environment[API_CONFIG.providers.audioDb.apiKeyEnvironmentVariable]),
+                lyricsProviders: {
+                    lyricsOvh: true,
+                    genius: Boolean(environment.GENIUS_ACCESS_TOKEN),
+                    musixmatch: Boolean(environment.MUSIXMATCH_API_KEY)
+                }
             });
+            return;
+        }
+        const audioDbSearch = url.pathname.match(
+            new RegExp(`^${API_CONFIG.providers.audioDb.searchRoute}/(artist|album|track)$`)
+        );
+        if (audioDbSearch) {
+            await handleAudioDbSearch(url, response, audioDbSearch[1]);
+            return;
+        }
+        const audioDbLookup = url.pathname.match(
+            new RegExp(`^${API_CONFIG.providers.audioDb.lookupRoute}/(artist|artist_mb|album|album_mb|track|track_mb)$`)
+        );
+        if (audioDbLookup) {
+            await handleAudioDbLookup(url, response, audioDbLookup[1]);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.audioDb.discographyRoute) {
+            await handleAudioDbDiscography(url, response);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.musicBrainz.artistSearchRoute) {
+            await handleMusicBrainzArtist(url, response);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.lyrics.proxyPath) {
+            await handleLyrics(url, response);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.jamendo.searchRoute) {
+            await handleJamendoSearch(url, response);
             return;
         }
         if (url.pathname === API_CONFIG.providers.deezer.searchRoute) {
@@ -307,11 +646,15 @@ const server = http.createServer(async (request, response) => {
             response.destroy(error);
         }
     }
-});
+}
 
-// Usa loopback por padrão para não expor a configuração local da API à rede.
-// Listen on loopback by default so local API configuration is not exposed to the network.
-const port = Number(environment.PORT || 8765);
-server.listen(port, "127.0.0.1", () => {
-    console.log(`Open Music Hub available at http://127.0.0.1:${port}`);
-});
+if (require.main === module) {
+    // Usa loopback por padrão para não expor a configuração local da API à rede.
+    // Listen on loopback by default so local API configuration is not exposed to the network.
+    const port = Number(environment.PORT || 8765);
+    http.createServer(handleRequest).listen(port, "127.0.0.1", () => {
+        console.log(`Open Music Hub available at http://127.0.0.1:${port}`);
+    });
+}
+
+module.exports = handleRequest;

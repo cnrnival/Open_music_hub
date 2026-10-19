@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="noindex,nofollow">
+	<meta name="theme-color" content="#121212">
+	<title>Privacidade — Open Music Hub</title>
+	<link rel="stylesheet" href="css/tailwind.css">
+	<link rel="stylesheet" href="css/styles.css">
+	<style>
+		body { min-height: 100vh; padding: 32px 20px; background: #121212; color: #f5f5f5; }
+		main { width: min(760px, 100%); margin: 0 auto; }
+		h1, h2 { margin-top: 1.5em; }
+		p, li { color: #d1d1d1; line-height: 1.7; }
+		a { color: #8be28b; }
+		.notice { padding: 14px; border: 1px solid #8a6d3b; border-radius: 8px; background: #302818; }
+	</style>
+</head>
+<body>
+	<main>
+		<a href="./">Voltar ao Open Music Hub</a>
+		<h1>Aviso de Privacidade</h1>
+		<p>Este aviso descreve como o Open Music Hub trata dados ao usar o site. A aplicação é um projeto independente e não é afiliada aos provedores de música.</p>
+		<p><strong>Atualizado em:</strong> 18 de outubro de 2026. Este aviso está em revisão e não deve ser tratado como final até o canal de contato ser preenchido.</p>
+
+		<h2>Quem é responsável</h2>
+		<p>O responsável pelo projeto é seu mantenedor, cnrnival. O contato privado para dúvidas e solicitações de titulares está pendente de definição pelo mantenedor.</p>
+		<p class="notice"><strong>Aviso:</strong> o canal privado de privacidade deve ser configurado antes de divulgar o serviço para usuários finais. Não envie dados pessoais ou documentos em issues públicas do GitHub.</p>
+
+		<h2>Dados tratados neste navegador</h2>
+		<ul>
+			<li>O navegador guarda localmente estatísticas de reprodução, contagens de salvamentos e itens da biblioteca para as funcionalidades do app.</li>
+			<li>O Client ID público do Spotify pode ser guardado em armazenamento local. Durante o fluxo OAuth, estado e verificador PKCE ficam temporariamente no armazenamento da sessão; o token de acesso fica somente na memória desta aba.</li>
+			<li>Arquivos escolhidos no seletor de áudio são lidos pelo player no próprio navegador e não são enviados pelo app ao servidor.</li>
+		</ul>
+		<p>Esses dados não são sincronizados entre dispositivos. Limpe os dados do site no navegador para removê-los; a remoção desses dados também apaga preferências e biblioteca local.</p>
+
+		<h2>Buscas e serviços de terceiros</h2>
+		<p>Quando você pesquisa, os termos necessários são enviados aos catálogos chamados para obter resultados. Conforme os recursos usados, isso pode envolver Deezer, Invidious, MusicBrainz, Lyrics.ovh e, se configurados, Jamendo, TheAudioDB e Spotify. Imagens, prévias e áudio licenciados podem ser carregados diretamente dos domínios dos respectivos provedores. Cada provedor pode receber dados técnicos de conexão e aplicar seus próprios termos e avisos de privacidade.</p>
+		<p>O site é hospedado pela Vercel. Como em qualquer hospedagem web, requisições podem gerar logs técnicos, como endereço IP, data, rota solicitada e informações do navegador, sujeitos à configuração e às políticas da plataforma. Este projeto não implementa conta própria, banco de dados de perfil ou analytics de terceiros no código do app.</p>
+
+		<h2>Finalidades e bases legais</h2>
+		<p>O armazenamento local é usado para fornecer as funções que você escolhe, como biblioteca, preferências do player e login opcional no Spotify. Consultas a provedores são feitas para responder às suas buscas e exibir os recursos solicitados. Registros técnicos de hospedagem servem à entrega, segurança e diagnóstico do serviço. A definição da base legal aplicável e a configuração de retenção devem ser confirmadas pelo responsável pelo deploy, conforme o contexto de uso e a legislação aplicável.</p>
+
+		<h2>Compartilhamento e transferências</h2>
+		<p>As consultas são encaminhadas aos provedores acima; chamadas de API feitas pelo servidor podem ser processadas fora do Brasil. A hospedagem e os provedores podem operar em outras jurisdições. Consulte os avisos e termos de cada serviço antes de usar o aplicativo.</p>
+
+		<h2>Seus direitos</h2>
+		<p>Nos termos da LGPD e conforme aplicável, você pode solicitar confirmação e acesso a dados pessoais, correção, anonimização, bloqueio ou eliminação, informações sobre compartilhamento e revisão de decisões automatizadas. Os dados que ficam somente no seu navegador podem ser removidos por você ao limpar os dados do site. Para solicitações ao responsável, use o canal privado de contato a ser preenchido acima.</p>
+
+		<h2>Segurança e alterações</h2>
+		<p>Credenciais de API que exigem sigilo devem ser configuradas no ambiente do servidor, nunca no JavaScript público. O app limita o uso de dados pessoais ao necessário para suas funções, mas nenhum serviço conectado à Internet pode prometer segurança absoluta. Este aviso deve ser atualizado se mudarem provedores, finalidades, retenção ou tecnologias.</p>
+		<p>Este texto é uma descrição informativa da implementação, não substitui uma avaliação jurídica nem a validação do controlador do deploy.</p>
+	</main>
+</body>
+</html>

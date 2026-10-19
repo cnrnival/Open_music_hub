@@ -51,8 +51,145 @@ const API_CONFIG = Object.freeze({
                 return `${this.detailRoutePrefix}artist/${encodeURIComponent(id)}/albums`;
             }
         }),
+        // V2 credentials are configured only on the server and never exposed in this public file.
+        // As credenciais V2 são configuradas somente no servidor e nunca expostas neste arquivo público.
+        audioDb: Object.freeze({
+            baseUrl: "https://www.theaudiodb.com/",
+            apiPath: "api/v2/json/",
+            apiKeyEnvironmentVariable: "AUDIODB_API_KEY",
+            proxyBasePath: "/api/audiodb",
+            get searchRoute() {
+                return `${this.proxyBasePath}/search`;
+            },
+            get lookupRoute() {
+                return `${this.proxyBasePath}/lookup`;
+            },
+            get discographyRoute() {
+                return `${this.proxyBasePath}/discography`;
+            },
+            artistSearchPath(name) {
+                return `${this.searchRoute}/artist?q=${encodeURIComponent(name)}`;
+            },
+            searchPath(kind, query) {
+                return `${this.searchRoute}/${encodeURIComponent(kind)}?q=${encodeURIComponent(query)}`;
+            },
+            lookupPath(kind, id, musicBrainz = false) {
+                const lookupKind = musicBrainz ? `${kind}_mb` : kind;
+                return `${this.lookupRoute}/${encodeURIComponent(lookupKind)}?id=${encodeURIComponent(id)}`;
+            },
+            discographyPath(artistId) {
+                return `${this.discographyRoute}?id=${encodeURIComponent(artistId)}`;
+            },
+            endpoints: Object.freeze({
+                search: Object.freeze({
+                    artist(name) {
+                        return `search/artist/${encodeURIComponent(name)}`;
+                    },
+                    album(name) {
+                        return `search/album/${encodeURIComponent(name)}`;
+                    },
+                    track(name) {
+                        return `search/track/${encodeURIComponent(name)}`;
+                    }
+                }),
+                lookup: Object.freeze({
+                    artist(id) {
+                        return `lookup/artist/${encodeURIComponent(id)}`;
+                    },
+                    artistByMusicBrainz(mbid) {
+                        return `lookup/artist_mb/${encodeURIComponent(mbid)}`;
+                    },
+                    album(id) {
+                        return `lookup/album/${encodeURIComponent(id)}`;
+                    },
+                    albumByMusicBrainz(mbid) {
+                        return `lookup/album_mb/${encodeURIComponent(mbid)}`;
+                    },
+                    track(id) {
+                        return `lookup/track/${encodeURIComponent(id)}`;
+                    },
+                    trackByMusicBrainz(mbid) {
+                        return `lookup/track_mb/${encodeURIComponent(mbid)}`;
+                    }
+                }),
+                list: Object.freeze({
+                    discography(artistId) {
+                        return `list/discography/${encodeURIComponent(artistId)}`;
+                    }
+                })
+            }),
+            providerPath(resourcePath) {
+                return `${this.apiPath}${resourcePath}`;
+            },
+            providerSearchPath(kind, query) {
+                return this.providerPath(this.endpoints.search[kind](query));
+            },
+            providerLookupPath(kind, id, musicBrainz = false) {
+                const endpoint = musicBrainz
+                    ? this.endpoints.lookup[`${kind}ByMusicBrainz`](id)
+                    : this.endpoints.lookup[kind](id);
+                return this.providerPath(endpoint);
+            },
+            providerDiscographyPath(artistId) {
+                return this.providerPath(this.endpoints.list.discography(artistId));
+            }
+        }),
+        musicBrainz: Object.freeze({
+            baseUrl: "https://musicbrainz.org/ws/2/",
+            proxyBasePath: "/api/musicbrainz",
+            get artistSearchRoute() {
+                return `${this.proxyBasePath}/artist`;
+            },
+            artistSearchPath(name) {
+                return `${this.artistSearchRoute}?q=${encodeURIComponent(name)}`;
+            },
+            endpoints: Object.freeze({
+                searchArtist(name) {
+                    return `artist/?query=${encodeURIComponent(`artist:"${name}"`)}&fmt=json&limit=1`;
+                },
+                artistReleases(mbid) {
+                    return `release-group?artist=${encodeURIComponent(mbid)}&type=album|ep|single&fmt=json&limit=25`;
+                }
+            })
+        }),
+        lyrics: Object.freeze({
+            baseUrl: "https://api.lyrics.ovh/v1/",
+            proxyPath: "/api/lyrics",
+            searchPath(artist, title) {
+                return `${this.proxyPath}?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`;
+            },
+            genius: Object.freeze({
+                baseUrl: "https://api.genius.com/",
+                search(query) {
+                    return `search?q=${encodeURIComponent(query)}`;
+                },
+                accessTokenEnvironmentVariable: "GENIUS_ACCESS_TOKEN"
+            }),
+            musixmatch: Object.freeze({
+                baseUrl: "https://api.musixmatch.com/ws/1.1/",
+                trackSearch(query) {
+                    return `track.search?q_track=${encodeURIComponent(query)}`;
+                },
+                apiKeyEnvironmentVariable: "MUSIXMATCH_API_KEY"
+            })
+        }),
+        jamendo: Object.freeze({
+            baseUrl: "https://api.jamendo.com/v3.0/",
+            proxyBasePath: "/api/jamendo",
+            get searchRoute() {
+                return `${this.proxyBasePath}/search`;
+            },
+            searchPath(query) {
+                return `${this.searchRoute}?q=${encodeURIComponent(query)}`;
+            },
+            endpoints: Object.freeze({
+                search(query) {
+                    return `tracks/?format=json&namesearch=${encodeURIComponent(query)}&limit=12&audioformat=mp32&include=musicinfo`;
+                }
+            })
+        }),
         invidious: Object.freeze({
-            baseUrl: "https://invidious.nerdvpn.de/",
+            baseUrl: "https://invidious.f5.si/",
             proxyBasePath: "/api/invidious",
             get searchRoute() {
                 return `${this.proxyBasePath}/search`;

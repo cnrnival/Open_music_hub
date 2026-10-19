@@ -38,6 +38,9 @@ const detailTitle = document.querySelector(".detail-title");
 const detailDescription = document.querySelector(".detail-description");
 const detailMeta = document.querySelector(".detail-meta");
 const detailTrackList = document.querySelector(".detail-track-list");
+const artistSupplemental = document.querySelector(".artist-supplemental");
+const artistSupplementalStatus = document.querySelector(".artist-supplemental__status");
+const artistDiscography = document.querySelector(".artist-discography");
 const apiSearchSection = document.querySelector(".api-search-results");
 const apiSearchGrid = document.querySelector(".api-search-grid");
 const apiSearchStatus = document.querySelector(".api-search-status");
@@ -65,6 +68,8 @@ let currentDetailTracks = [];
 let spotifyAccessToken;
 let spotifyTokenExpiresAt = 0;
 let spotifyClientId = "";
+let jamendoEnabled = false;
+let audioDbEnabled = false;
 let spotifyAuthState = "";
 let spotifyAuthVerifier = "";
 let searchRequestId = 0;
@@ -86,6 +91,8 @@ const savedLibraryItems = new Map();
 let isSeeking = false;
 let isPointerSeeking = false;
 let ignoreNextRangeChange = false;
+let playbackRequestId = 0;
+let jamendoFallbackAttemptId = 0;
 
 libraryList.querySelectorAll(".library-item").forEach((item, index) => {
     item.dataset.sequence = String(librarySequence - index);
@@ -113,6 +120,28 @@ function showDialog(heading, message, confirmText = "Entendi") {
     dialogConfirm.textContent = confirmText;
     dialog.dataset.action = "";
     dialog.showModal();
+}
+
+// Render lyric responses as plain text so provider content is never interpreted as markup.
+// Renderiza letras como texto para impedir que conteúdo externo seja interpretado como HTML.
+async function showLyrics() {
+    const trackArtist = currentTrack.artistName;
+    const trackTitle = currentTrack.title;
+    showDialog("Letra da música", "Buscando letras em Lyrics.ovh…", "Fechar");
+    if (!trackArtist || trackArtist === "Arquivo local" || !trackTitle) {
+        dialogBody.firstElementChild.textContent = "As letras precisam do nome do artista e da faixa. Procure a música no catálogo para tentar novamente.";
+        return;
+    }
+    try {
+        const payload = await fetchJson(API_CONFIG.providers.lyrics.searchPath(trackArtist, trackTitle));
+        const lyrics = document.createElement("pre");
+        lyrics.className = "lyrics-text";
+        lyrics.textContent = payload.lyrics;
+        dialogBody.replaceChildren(lyrics);
+    } catch (error) {
+        console.error("Could not load lyrics.", error);
+        dialogBody.firstElementChild.textContent = `Não foi possível carregar a letra: ${error.message}`;
+    }
 }
 
 function showPlaylistDialog() {
@@ -191,6 +220,27 @@ function normalizeSpotifyItem(type, item) {
         releaseDate: album?.release_date || item.release_date || "",
         fanCount: item.followers?.total || 0,
         popularity: item.popularity || 0
+    };
+}
+
+// Map only server-approved Jamendo fields into the shared track model.
+// Mapeia somente campos Jamendo aprovados pelo servidor para o modelo de faixa compartilhado.
+function normalizeJamendoItem(item) {
+    return {
+        provider: "jamendo",
+        kind: "track",
+        id: String(item.id),
+        title: item.title || "Sem título",
+        artistName: item.artistName || "Artista desconhecido",
+        artistId: item.artistId || "",
+        albumName: item.albumName || "",
+        albumId: item.albumId || "",
+        image: item.image || "",
+        previewUrl: "",
+        playbackUrl: item.playbackUrl || "",
+        licenseUrl: item.licenseUrl || "",
+        externalUrl: item.externalUrl || "",
+        durationSeconds: Number(item.durationSeconds) || 0
     };
 }
 
@@ -286,11 +336,16 @@ function safeCoverUrl(value) {
     try {
         const url = new URL(value);
         const invidiousHost = new URL(API_CONFIG.providers.invidious.baseUrl).hostname;
+        const audioDbHost = new URL(API_CONFIG.providers.audioDb.baseUrl).hostname;
         const allowedHost = url.protocol === "https:"
             && (url.hostname.endsWith(".dzcdn.net")
                 || url.hostname.endsWith(".scdn.co")
                 || url.hostname.endsWith(".ytimg.com")
-                || url.hostname === invidiousHost);
+                || url.hostname === "jamendo.com"
+                || url.hostname.endsWith(".jamendo.com")
+                || url.hostname === invidiousHost
+                || url.hostname === audioDbHost
+                || url.hostname.endsWith(".theaudiodb.com"));
         return allowedHost ? url.href : "";
     } catch (error) {
         console.error("A music provider returned an invalid cover URL.", error);
@@ -309,6 +364,9 @@ function safeProviderUrl(value) {
         const approved = url.protocol === "https:"
             && (url.hostname === "spotify.com" || url.hostname.endsWith(".spotify.com")
                 || url.hostname === "deezer.com" || url.hostname.endsWith(".deezer.com")
+                || url.hostname === "jamendo.com" || url.hostname.endsWith(".jamendo.com")
+                || url.hostname === "musicbrainz.org" || url.hostname.endsWith(".musicbrainz.org")
+                || url.hostname === "creativecommons.org" || url.hostname.endsWith(".creativecommons.org")
                 || url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")
                 || url.hostname === "youtu.be");
         return approved ? url.href : "";
@@ -447,7 +505,14 @@ async function searchMusicProviders(query) {
     apiSearchAbortController?.abort();
     apiSearchAbortController = new AbortController();
     apiSearchSection.hidden = false;
-    apiSearchStatus.textContent = "Buscando no Deezer, Invidious e Spotify…";
+    const searchingProviders = ["Deezer", "Invidious"];
+    if (jamendoEnabled) {
+        searchingProviders.push("Jamendo");
+    }
+    if (spotifyAccessToken && Date.now() < spotifyTokenExpiresAt) {
+        searchingProviders.push("Spotify");
+    }
+    apiSearchStatus.textContent = `Buscando em ${searchingProviders.join(", ")}…`;
     apiSearchGrid.replaceChildren();
 
     const results = [];
@@ -487,6 +552,24 @@ async function searchMusicProviders(query) {
         errors.push(`Invidious: ${error.message}`);
     }
 
+    if (jamendoEnabled) {
+        try {
+            const jamendo = await fetchJson(API_CONFIG.providers.jamendo.searchPath(query), {
+                signal: apiSearchAbortController.signal
+            });
+            successfulProviders.add("Jamendo");
+            for (const item of jamendo.results || []) {
+                results.push(normalizeJamendoItem(item));
+            }
+        } catch (error) {
+            if (error.name === "AbortError") {
+                return;
+            }
+            console.error("Jamendo search failed.", error);
+            errors.push(`Jamendo: ${error.message}`);
+        }
+    }
+
     if (spotifyAccessToken && Date.now() < spotifyTokenExpiresAt) {
         try {
             const types = "track,artist,album,playlist";
@@ -511,7 +594,7 @@ async function searchMusicProviders(query) {
     const providerNames = [...successfulProviders].join("/");
     const spotifyConnected = spotifyAccessToken && Date.now() < spotifyTokenExpiresAt;
     const providerSummary = successfulProviders.size
-        ? `${results.length} resultados de ${providerNames}${spotifyConnected ? "" : " • conecte o Spotify para incluir suas buscas"}`
+        ? `${results.length} resultados de ${providerNames}${spotifyConnected ? "" : " • conecte o Spotify para incluir suas buscas"}${jamendoEnabled ? "" : " • configure Jamendo para faixas completas licenciadas"}`
         : "Nenhum provedor respondeu";
     apiSearchStatus.textContent = errors.length
         ? `${providerSummary}. Alguns provedores falharam: ${errors.join(" ")}`
@@ -552,11 +635,13 @@ function renderApiSearchResults(results) {
         const heading = document.createElement("strong");
         heading.textContent = item.title;
         const subheading = document.createElement("small");
-        const providerName = item.provider === "invidious"
-            ? "Invidious"
-            : item.provider === "spotify"
-                ? "Spotify"
-                : "Deezer";
+        const providerNames = {
+            deezer: "Deezer",
+            invidious: "Invidious",
+            jamendo: "Jamendo",
+            spotify: "Spotify"
+        };
+        const providerName = providerNames[item.provider] || "Catálogo";
         subheading.textContent = `${item.kind === "artist" ? "Artista" : item.kind === "album" ? "Álbum" : item.kind === "playlist" ? "Playlist" : "Música"} • ${item.artistName || providerName} • ${providerName}`;
         text.append(heading, subheading);
         card.append(cover, text);
@@ -627,6 +712,8 @@ async function openDetail(item, { history = true } = {}) {
         detailHeaderArt.classList.add("has-cover");
     }
     detailTrackList.replaceChildren();
+    artistSupplemental.hidden = true;
+    artistDiscography.replaceChildren();
     document.querySelector(".detail-empty").hidden = true;
     apiSearchSection.hidden = true;
     if (history) {
@@ -674,8 +761,23 @@ async function openDetail(item, { history = true } = {}) {
             providerLink.href = providerUrl;
             providerLink.target = "_blank";
             providerLink.rel = "noopener noreferrer";
-            providerLink.textContent = `Abrir no ${updatedItem.provider === "spotify" ? "Spotify" : "Deezer"}`;
+            const providerNames = {
+                deezer: "Deezer",
+                spotify: "Spotify",
+                jamendo: "Jamendo"
+            };
+            providerLink.textContent = `Abrir no ${providerNames[updatedItem.provider] || "provedor"}`;
             detailMeta.append(providerLink);
+        }
+        const licenseUrl = safeProviderUrl(updatedItem.licenseUrl);
+        if (updatedItem.provider === "jamendo" && licenseUrl) {
+            const licenseLink = document.createElement("a");
+            licenseLink.className = "detail-link";
+            licenseLink.href = licenseUrl;
+            licenseLink.target = "_blank";
+            licenseLink.rel = "noopener noreferrer";
+            licenseLink.textContent = "Licença Creative Commons";
+            detailMeta.append(licenseLink);
         }
         if (updatedItem.kind === "album" || updatedItem.kind === "playlist") {
             const total = document.createElement("span");
@@ -699,6 +801,9 @@ async function openDetail(item, { history = true } = {}) {
         playbackQueue = detail.tracks;
         playbackQueueIndex = -1;
         renderTrackRows(currentDetailTracks);
+        if (updatedItem.kind === "artist") {
+            void loadArtistSupplemental(updatedItem);
+        }
     } catch (error) {
         console.error("Could not load music detail.", error);
         detailMeta.replaceChildren();
@@ -710,11 +815,112 @@ async function openDetail(item, { history = true } = {}) {
     }
 }
 
+// Load optional artist biography and discography without blocking the primary catalog page.
+// Carrega biografia e discografia opcionais sem bloquear a página principal do catálogo.
+async function loadArtistSupplemental(item) {
+    artistSupplemental.hidden = false;
+    artistSupplementalStatus.textContent = "Buscando biografia e discografia…";
+    const [audioDbResult, musicBrainzResult] = await Promise.allSettled([
+        audioDbEnabled
+            ? fetchJson(API_CONFIG.providers.audioDb.artistSearchPath(item.title))
+            : Promise.resolve(null),
+        fetchJson(API_CONFIG.providers.musicBrainz.artistSearchPath(item.title))
+    ]);
+    if (currentDetail !== item) {
+        return;
+    }
+
+    const errors = [];
+    if (audioDbResult.status === "fulfilled" && audioDbResult.value?.results?.[0]) {
+        const artistInfo = audioDbResult.value.results[0];
+        if (artistInfo.biography) {
+            detailDescription.textContent = artistInfo.biography;
+        }
+        const banner = safeCoverUrl(artistInfo.banner || artistInfo.thumb);
+        if (banner) {
+            detailHeaderArt.style.backgroundImage = `linear-gradient(180deg, #0002, #1118), url("${banner}")`;
+            detailHeaderArt.classList.add("has-cover");
+        }
+        const facts = [artistInfo.genre, artistInfo.country].filter(Boolean);
+        if (facts.length) {
+            const fact = document.createElement("span");
+            fact.textContent = facts.join(" • ");
+            detailMeta.append(fact);
+        }
+    } else if (audioDbResult.status === "rejected") {
+        console.error("TheAudioDB artist lookup failed.", audioDbResult.reason);
+        errors.push(String(audioDbResult.reason?.message || "").includes("AUDIODB_API_KEY")
+            ? "configure AUDIODB_API_KEY no .env para habilitar a biografia"
+            : "biografia indisponível");
+    } else if (!audioDbEnabled) {
+        errors.push("biografia TheAudioDB V2 desativada (requer chave Premium)");
+    }
+
+    if (musicBrainzResult.status === "fulfilled" && musicBrainzResult.value.artist) {
+        const { artist: artistInfo, releases } = musicBrainzResult.value;
+        if (artistInfo.country || artistInfo.disambiguation) {
+            const facts = document.createElement("span");
+            facts.textContent = [artistInfo.country, artistInfo.disambiguation].filter(Boolean).join(" • ");
+            detailMeta.append(facts);
+        }
+        for (const release of releases) {
+            const itemNode = document.createElement("li");
+            const releaseLink = document.createElement("a");
+            const safeId = /^[0-9a-f-]{36}$/i.test(release.id) ? release.id : "";
+            releaseLink.textContent = release.title;
+            if (safeId) {
+                releaseLink.href = `https://musicbrainz.org/release-group/${encodeURIComponent(safeId)}`;
+                releaseLink.target = "_blank";
+                releaseLink.rel = "noopener noreferrer";
+            }
+            const releaseInfo = document.createElement("small");
+            releaseInfo.textContent = [release.type, release.firstReleaseDate].filter(Boolean).join(" • ");
+            itemNode.append(releaseLink, releaseInfo);
+            artistDiscography.append(itemNode);
+        }
+        if (artistInfo.id) {
+            const musicBrainzLink = document.createElement("a");
+            musicBrainzLink.className = "detail-link";
+            musicBrainzLink.href = `https://musicbrainz.org/artist/${encodeURIComponent(artistInfo.id)}`;
+            musicBrainzLink.target = "_blank";
+            musicBrainzLink.rel = "noopener noreferrer";
+            musicBrainzLink.textContent = "MusicBrainz";
+            detailMeta.append(musicBrainzLink);
+        }
+    } else if (musicBrainzResult.status === "rejected") {
+        console.error("MusicBrainz artist lookup failed.", musicBrainzResult.reason);
+        errors.push("discografia indisponível");
+    }
+
+    artistSupplementalStatus.textContent = artistDiscography.children.length
+        ? `${artistDiscography.children.length} lançamentos catalogados${errors.length ? `; ${errors.join(" e ")}` : ""}.`
+        : `Sem discografia disponível${errors.length ? `; ${errors.join(" e ")}` : ""}.`;
+}
+
 // Busca detalhes e faixas relacionadas pelo proxy local do Deezer ou pela Web API do Spotify.
 // Request details and related tracks using either the local Deezer proxy or Spotify Web API.
 async function fetchProviderDetail(item) {
     if (item.provider === "local") {
         return { item, tracks: item.kind === "artist" ? [] : [item] };
+    }
+    // Jamendo tracks are playable only when its server-side response confirms an authorized download.
+    // Faixas Jamendo só são reproduzíveis quando a resposta do servidor confirma download autorizado.
+    if (item.provider === "jamendo") {
+        if (item.kind !== "artist") {
+            return { item, tracks: [item] };
+        }
+        const search = await fetchJson(API_CONFIG.providers.deezer.searchPath(item.title));
+        const artistResult = search.results
+            .find((group) => group.type === "artist")
+            ?.data?.find((entry) => entry.name.toLocaleLowerCase("pt-BR") === item.title.toLocaleLowerCase("pt-BR"));
+        if (!artistResult) {
+            return { item, tracks: [] };
+        }
+        const payload = await fetchJson(API_CONFIG.providers.deezer.detailPath("artist", artistResult.id));
+        return {
+            item: { ...item, image: item.image || artistResult.picture_big || "" },
+            tracks: (payload.tracks || []).map((track) => normalizeDeezerItem("track", track))
+        };
     }
     if (item.provider === "invidious") {
         const payload = await fetchJson(API_CONFIG.providers.invidious.detailPath(item.id));
@@ -827,7 +1033,8 @@ function renderTrackRows(tracks) {
 
 // Seleciona uma faixa; se não houver prévia, abre a página oficial do Spotify quando disponível.
 // Select a track from either catalog; Spotify tracks without previews open their official page.
-function playTrack(track, { autoplay = true } = {}) {
+async function playTrack(track, { autoplay = true } = {}) {
+    const requestId = ++playbackRequestId;
     currentTrack = track;
     hasPlayedCurrentTrack = false;
     pendingPlayCount = false;
@@ -856,11 +1063,30 @@ function playTrack(track, { autoplay = true } = {}) {
     playerCover.style.backgroundImage = image ? `url("${image}")` : "";
     playerCover.querySelector(".mdi").hidden = Boolean(image);
 
-    if (!track.previewUrl) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    playButton.disabled = true;
+    progress.disabled = true;
+    let playableUrl = track.playbackUrl || track.previewUrl;
+    let usingJamendoFallback = track.provider === "jamendo";
+    if (jamendoEnabled
+        && !track.playbackUrl
+        && ["deezer", "spotify"].includes(track.provider)
+        && track.title
+        && track.artistName) {
+        const jamendoMatch = await findLicensedJamendoMatch(track, requestId);
+        if (requestId !== playbackRequestId) {
+            return;
+        }
+        if (jamendoMatch) {
+            playableUrl = jamendoMatch.playbackUrl;
+            usingJamendoFallback = true;
+            status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+        }
+    }
+    if (!playableUrl) {
         pendingPlayCount = false;
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
         playButton.disabled = true;
         progress.disabled = true;
         const providerUrl = safeProviderUrl(track.externalUrl);
@@ -876,11 +1102,13 @@ function playTrack(track, { autoplay = true } = {}) {
         return;
     }
 
-    status.textContent = "";
+    if (!usingJamendoFallback) {
+        status.textContent = "";
+    }
     playButton.disabled = true;
     progress.disabled = true;
     audio.pause();
-    audio.src = track.previewUrl;
+    audio.src = playableUrl;
     audio.load();
     audio.addEventListener("loadedmetadata", () => {
         if (currentTrack === track) {
@@ -893,6 +1121,53 @@ function playTrack(track, { autoplay = true } = {}) {
             }
         }
     }, { once: true });
+}
+
+// Find an exact, license-approved Jamendo match without accepting arbitrary provider URLs.
+// Localiza uma correspondência exata e licenciada do Jamendo sem aceitar URLs externas arbitrárias.
+async function findLicensedJamendoMatch(track, requestId) {
+    if (!jamendoEnabled || !track.title || jamendoFallbackAttemptId === requestId) {
+        return null;
+    }
+    jamendoFallbackAttemptId = requestId;
+    status.textContent = "Procurando uma versão completa licenciada no Jamendo…";
+    try {
+        const { obterStreamAudioCompleto } = await import("./playback.mjs");
+        const match = await obterStreamAudioCompleto(track.title, track.artistName, {
+            searchUrl: API_CONFIG.providers.jamendo.searchPath(track.title),
+            fetchImpl: fetch
+        });
+        if (requestId !== playbackRequestId) {
+            return null;
+        }
+        return match || null;
+    } catch (error) {
+        if (requestId === playbackRequestId) {
+            console.error("Jamendo playback fallback failed.", error);
+        }
+        return null;
+    }
+}
+
+// Recover from a failed preview by resolving one authorized full-track match.
+// Recupera uma prévia que falhou buscando uma faixa completa autorizada.
+async function tryJamendoPlaybackFallback(track, requestId) {
+    const match = await findLicensedJamendoMatch(track, requestId);
+    if (!match || requestId !== playbackRequestId || currentTrack !== track) {
+        return false;
+    }
+    status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+    audio.src = match.playbackUrl;
+    audio.load();
+    audio.addEventListener("loadedmetadata", () => {
+        if (requestId === playbackRequestId && currentTrack === track) {
+            playButton.disabled = false;
+            progress.disabled = false;
+            updateProgress();
+            playAudio();
+        }
+    }, { once: true });
+    return true;
 }
 
 // Alterna o salvamento local e sincroniza os controles visíveis.
@@ -962,7 +1237,7 @@ function restoreSavedLibraryItems() {
     const stats = readLocalStats();
     Object.entries(stats).forEach(([key, value]) => {
         const [provider, kind] = key.split(":");
-        if (!["deezer", "invidious", "spotify", "local"].includes(provider)
+        if (!["deezer", "invidious", "jamendo", "spotify", "local"].includes(provider)
             || !["track", "artist", "album", "playlist"].includes(kind)) {
             return;
         }
@@ -1146,6 +1421,8 @@ async function openNamedArtist(name, sourceItem = currentTrack) {
 async function loadApiConfiguration() {
     try {
         const config = await fetchJson(API_CONFIG.serverRoutes.configuration);
+        jamendoEnabled = config.jamendoEnabled === true;
+        audioDbEnabled = config.audioDbEnabled === true;
         const storedClientId = localStorage.getItem(storageKeys.clientId)
             || localStorage.getItem(storageKeys.legacyClientId);
         spotifyClientId = storedClientId || config.spotifyClientId || "";
@@ -1482,14 +1759,36 @@ audio.addEventListener("ended", () => {
     updateProgress();
     if (!audio.loop && playbackQueueIndex >= 0 && playbackQueueIndex + 1 < playbackQueue.length) {
         advanceQueue();
+    } else if (!audio.loop) {
+        status.textContent = "Reprodução concluída.";
+    }
+});
+audio.addEventListener("stalled", () => {
+    if (currentTrack.provider !== "local" && !audio.paused) {
+        status.textContent = "A fonte de áudio está demorando para responder…";
     }
 });
 audio.addEventListener("error", () => {
+    const failedRequestId = playbackRequestId;
+    if (currentTrack.provider !== "local"
+        && currentTrack.provider !== "jamendo"
+        && (currentTrack.previewUrl || currentTrack.playbackUrl)
+        && jamendoEnabled
+        && jamendoFallbackAttemptId !== failedRequestId) {
+        void tryJamendoPlaybackFallback(currentTrack, failedRequestId).then((recovered) => {
+            if (!recovered && failedRequestId === playbackRequestId) {
+                playButton.disabled = true;
+                progress.disabled = true;
+                status.textContent = "O áudio não está disponível. Tente outra faixa ou carregue um arquivo local.";
+            }
+        });
+        return;
+    }
     playButton.disabled = true;
     progress.disabled = true;
     status.textContent = audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-        ? "Formato não compatível com este navegador. Converta o arquivo para MP3 ou WAV."
-        : "Não foi possível carregar este arquivo de áudio.";
+        ? "Formato não compatível. Tente outra fonte ou carregue um arquivo MP3 ou WAV autorizado."
+        : "Não foi possível carregar o áudio. Tente outra fonte ou carregue um arquivo local.";
 });
 
 playButton.addEventListener("click", () => {
@@ -1858,7 +2157,7 @@ document.querySelector(".restore-now-playing").addEventListener("click", () => {
 });
 
 document.querySelector(".music-player__extras [aria-label='Letra']").addEventListener("click", () => {
-    showDialog("Letra da música", "A letra não está disponível para esta faixa local.");
+    void showLyrics();
 });
 
 document.querySelector(".music-player__extras [aria-label='Fila']").addEventListener("click", () => {

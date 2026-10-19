@@ -905,6 +905,60 @@ input:focus-visible {
 	text-align: center;
 }
 
+/* Estilo do perfil suplementar e da letra em texto simples.
+   Supplemental profile and plain-text lyrics styles. */
+.artist-supplemental {
+	margin: 28px 0 12px;
+}
+
+.artist-supplemental h2 {
+	font-size: 20px;
+}
+
+.artist-supplemental__status {
+	color: var(--text-secondary);
+	font-size: 13px;
+}
+
+.artist-discography {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 8px;
+	padding: 0;
+	list-style: none;
+}
+
+.artist-discography li {
+	display: grid;
+	gap: 4px;
+	padding: 12px;
+	border-radius: 6px;
+	background: #202020;
+}
+
+.artist-discography a {
+	color: #fff;
+	text-decoration: none;
+}
+
+.artist-discography a:hover {
+	text-decoration: underline;
+}
+
+.artist-discography small {
+	color: var(--text-secondary);
+}
+
+.lyrics-text {
+	max-height: min(65vh, 620px);
+	overflow: auto;
+	margin: 0;
+	color: #fff;
+	font: inherit;
+	line-height: 1.65;
+	white-space: pre-wrap;
+}
+
 /* O diálogo da API armazena neste navegador somente o Client ID público do Spotify.
    The API dialog stores only a public Spotify Client ID in this browser. */
 .api-settings-dialog {

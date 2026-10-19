@@ -4,11 +4,13 @@ Projeto open source para reunir busca, descoberta e reprodução de músicas em 
 
 ## Recursos
 
-- Busca agregada no Deezer e no Invidious, com debounce de 300 ms.
+- Busca agregada no Deezer e no Invidious, com debounce de 300 ms; Jamendo pode ser ativado como fonte opcional de faixas completas licenciadas.
 - Spotify Web API opcional para metadados, mediante autenticação OAuth com PKCE.
+- Biografia e imagens de artistas do TheAudioDB, discografia do MusicBrainz e letras via Lyrics.ovh.
 - Páginas de artistas, faixas, álbuns e playlists.
 - Aba **Novidades** para consultar lançamentos de artistas salvos.
 - Player com reprodução de faixas completas a partir de vários arquivos de áudio locais selecionados pelo usuário; prévias do Deezer continuam disponíveis quando fornecidas. A seleção aceita apenas formatos de áudio.
+- Integração opcional com Jamendo para faixas completas que tenham download permitido e licença compatível.
 - Controles de fila, volume, busca por posição e salvamentos locais.
 - Configuração dos provedores centralizada em `public/js/config.js`.
 
@@ -33,18 +35,24 @@ Os componentes continuam estilizados com CSS próprio; Tailwind fornece utilitá
 │   ├── js/
 │   │   ├── app.js
 │   │   └── config.js
+│   ├── privacy.html
 │   ├── music/
 │   │   ├── lil-giela-cristal.mp3
 │   │   └── lil giela cristal.mp4
 ├── .env.example
 ├── .gitignore
+├── api/
+│   └── [...path].js
 ├── LICENSE
 ├── package.json
 ├── package-lock.json
 ├── README.md
 ├── src/
 │   └── tailwind.css
-└── server.js
+├── server.js
+├── tests/
+│   └── playback.test.mjs
+└── vercel.json
 ```
 
 O servidor serve somente arquivos dentro de `public/`; configurações privadas e arquivos do projeto que ficam na raiz não são expostos como conteúdo estático.
@@ -61,7 +69,17 @@ Requisitos: Node.js 18 ou mais recente.
    npm run build:css
    ```
 
-3. Opcionalmente, copie `.env.example` para `.env` e informe um `SPOTIFY_CLIENT_ID` público.
+3. Opcionalmente, copie `.env.example` para `.env` e configure os provedores necessários:
+
+   ```env
+   SPOTIFY_CLIENT_ID=
+   JAMENDO_CLIENT_ID=
+   AUDIODB_API_KEY=
+   GENIUS_ACCESS_TOKEN=
+   MUSIXMATCH_API_KEY=
+   ```
+
+   `SPOTIFY_CLIENT_ID` é público. `JAMENDO_CLIENT_ID` habilita a busca Jamendo. A integração TheAudioDB V2 exige uma chave Premium; configure `AUDIODB_API_KEY` somente após obter uma chave própria. Genius e Musixmatch estão reservados para integração futura. Nunca coloque tokens ou segredos privados no `config.js`, no navegador ou no Git.
 4. Inicie o servidor:
 
    ```sh
@@ -72,22 +90,53 @@ Requisitos: Node.js 18 ou mais recente.
 
 Não abra `public/index.html` diretamente pelo sistema de arquivos: as chamadas aos catálogos passam pelo servidor local para evitar problemas de CORS.
 
+Para rodar os testes do resolvedor de áudio licenciado:
+
+```sh
+npm test
+```
+
 ## Provedores e configuração
 
-As URLs base, endpoints, rotas locais e parâmetros ficam centralizados em [`public/js/config.js`](./public/js/config.js). Não adicione credenciais privadas nesse arquivo.
+As URLs base, endpoints, rotas locais e parâmetros públicos ficam centralizados em [`public/js/config.js`](./public/js/config.js). Não adicione credenciais privadas nesse arquivo. `server.js` compartilha o handler HTTP entre execução local e a função serverless `api/[...path].js` da Vercel.
 
 ### Deezer
 
-- API pública: `https://api.deezer.com/`, sem autenticação.
+- [Documentação da Deezer API](https://developers.deezer.com/api); API pública em `https://api.deezer.com/`, sem autenticação.
 - Fornece resultados de busca, metadados, capas e prévias de áudio quando disponíveis.
 - A aba **Novidades** consulta os álbuns e singles dos artistas Deezer salvos.
 - As prévias têm duração e disponibilidade limitadas pelo catálogo.
 
 ### Invidious
 
-- A instância inicial está definida em `public/js/config.js` e pode ser trocada por outra instância pública ativa.
+- A instância inicial está definida como `https://invidious.f5.si/` em `public/js/config.js` e pode ser trocada por outra instância pública ativa. Consulte [api.invidious.io](https://api.invidious.io) ou [instances.invidious.io](https://instances.invidious.io) para encontrar instâncias; disponibilidade e políticas variam.
 - Fornece metadados de vídeos e links para a página oficial.
 - O servidor filtra as respostas e não encaminha URLs de streams ou formatos adaptativos.
+
+### TheAudioDB e MusicBrainz
+
+- [Guia da TheAudioDB API](https://www.theaudiodb.com/api_guide.php): complementa perfis com biografias, imagens, gênero e país. A configuração centralizada inclui pesquisa de artistas/álbuns/faixas, lookup por ID ou MusicBrainz ID e listagem de discografia via V2. A chave pública de teste `2` do serviço legado V1 não autoriza chamadas V2; V2 exige chave Premium enviada pelo servidor no cabeçalho `X-API-KEY`. Configure `AUDIODB_API_KEY` no `.env`; sem ela, as rotas respondem que a configuração é necessária.
+- Os builders de endpoints V2 estão em `API_CONFIG.providers.audioDb.endpoints`: `search.artist/album/track`, `lookup.artist/album/track` e suas variantes `*ByMusicBrainz`, além de `list.discography`. `providerPath()` acrescenta o prefixo `api/v2/json/`; a interface usa os caminhos locais `artistSearchPath`, `searchPath`, `lookupPath` e `discographyPath`, encaminhados pelo servidor com a chave privada.
+- [Documentação do MusicBrainz Web Service](https://musicbrainz.org/doc/Development/XML_Web_Service/Version_2): complementa perfis com dados de artistas e grupos de lançamento. Não exige chave; o servidor envia um `User-Agent` identificável e serializa as chamadas para respeitar o limite de uso.
+
+### Lyrics.ovh
+
+- [Documentação Lyrics.ovh](https://lyricsovh.docs.apiary.io/): letras são consultadas no endpoint público e apresentadas como texto, sem interpretar conteúdo externo como HTML.
+- [Genius API Clients](https://genius.com/api-clients) e [Musixmatch Developer](https://developer.musixmatch.com/) exigem credenciais conforme as regras de cada serviço. As variáveis `GENIUS_ACCESS_TOKEN` e `MUSIXMATCH_API_KEY` estão reservadas no `.env.example`, mas esses provedores ainda não estão conectados nem são usados como fontes de letras.
+
+### Jamendo (opcional)
+
+1. Acesse a [documentação Jamendo API v3.0](https://developer.jamendo.com/v3.0), crie uma conta e registre um app em **My Apps > Create an App**.
+2. Defina `JAMENDO_CLIENT_ID` no arquivo `.env` local e reinicie o servidor.
+3. O Client ID permite consultar o catálogo, mas não concede direitos adicionais sobre as faixas. Os resultados só recebem URL de reprodução quando o serviço declara o download permitido, informa uma licença Creative Commons válida e fornece um stream HTTPS no domínio oficial do Jamendo.
+
+Confira e respeite os termos de cada API e a licença indicada para cada faixa. O projeto não contorna controles de acesso nem remove restrições de direitos autorais.
+
+### Audiomack e SoundCloud (não conectados)
+
+- O [Audiomack Data API](https://www.audiomack.com/data-api) e a [documentação de desenvolvedores do SoundCloud](https://developers.soundcloud.com/) são referências para avaliar integrações futuras.
+- Esta versão não chama essas APIs. Cadastro de uma aplicação ou obtenção de `API Key`, `API Secret` ou `client_id` não está implementado e não habilita reprodução no app.
+- Antes de integrar, confirme que o acesso para novos aplicativos, endpoints e direitos de reprodução continuam disponíveis nos termos oficiais. Credenciais privadas, se vierem a ser necessárias, devem ser lidas pelo servidor a partir de `.env`, nunca adicionadas ao `config.js` público.
 
 ### Spotify (opcional)
 
@@ -101,14 +150,34 @@ A autenticação usa Authorization Code com PKCE; não use client secret no nave
 
 ## Reprodução e uso autorizado
 
-O player reproduz faixas completas a partir de arquivos de áudio escolhidos pelo usuário (é possível selecionar vários para criar uma fila local) e prévias fornecidas pelo Deezer. Resultados do Invidious e metadados do Spotify podem abrir suas páginas oficiais, mas não são convertidos em áudio pelo projeto. Para ouvir músicas completas, importe arquivos que você tenha direito de reproduzir ou use serviços oficiais que autorizem essa integração. O projeto não extrai streams completos do Invidious/YouTube.
+O player reproduz faixas completas a partir de arquivos de áudio escolhidos pelo usuário (é possível selecionar vários para criar uma fila local) e, quando configurado, faixas Jamendo com download permitido e licença identificável. Ao selecionar uma faixa Deezer ou Spotify, o app tenta primeiro encontrar uma correspondência exata de título e artista no Jamendo; se não encontrar, usa a prévia oficial disponível. Se essa prévia falhar, tenta novamente uma faixa completa licenciada. Resultados do Invidious e metadados do Spotify podem abrir suas páginas oficiais, mas não são convertidos em áudio pelo projeto. O projeto não extrai streams completos do Invidious/YouTube.
+
+## Deploy na Vercel
+
+1. Envie este repositório ao GitHub e importe-o no painel da [Vercel](https://vercel.com/new).
+2. Mantenha o diretório raiz do projeto e o preset **Other**. O `vercel.json` executa `npm install` e `npm run build`, publica `public/` e aplica cabeçalhos HTTP básicos de segurança; a Vercel detecta a função em `api/[...path].js`.
+3. Configure no projeto Vercel somente as variáveis dos provedores que pretende habilitar, em **Settings > Environment Variables**, e faça um novo deploy:
+   - `JAMENDO_CLIENT_ID` (opcional, gratuito conforme cadastro/termos do provedor) habilita faixas Jamendo elegíveis.
+   - `SPOTIFY_CLIENT_ID` (opcional) habilita metadados Spotify; configure também a URL pública do site como Redirect URI no Spotify Developer Dashboard.
+   - `AUDIODB_API_KEY` só é necessária para a API V2 da TheAudioDB, que exige chave Premium. Não é necessária para busca Deezer, MusicBrainz, letras Lyrics.ovh ou para iniciar a aplicação.
+4. Não envie um arquivo `.env` para o repositório ou para os arquivos estáticos; cadastre as variáveis no painel. `.vercel/` e arquivos `.env` estão ignorados pelo Git.
+
+O deploy da interface e das rotas serverless não transforma arquivos selecionados pelo usuário em armazenamento persistente. O armazenamento da biblioteca e das contagens é local ao navegador. Antes de publicar qualquer arquivo em `public/music/`, confirme que você tem autorização para distribuí-lo publicamente.
 
 ## Segurança
 
 - `.env`, diretórios de segredos e arquivos de chaves locais estão no `.gitignore`; `.env.example` é o único arquivo de ambiente versionado.
 - O servidor escuta em `127.0.0.1` por padrão e restringe arquivos estáticos à pasta `public/`.
-- O Client ID do Spotify é público; tokens e client secrets não devem ser adicionados ao repositório.
+- `public/js/config.js` contém somente endpoints e opções públicas. Nunca cole tokens ou segredos no exemplo de configuração do navegador.
+- Client IDs podem ser públicos quando o provedor assim os define; tokens, API secrets e outras credenciais privadas devem ficar no `.env` local e não devem ser adicionados ao repositório.
 - Não reutilize chaves compartilhadas em conversas ou commits. Revogue-as junto ao provedor quando necessário.
+
+### Privacidade e LGPD
+
+- Consulte [`public/privacy.html`](./public/privacy.html) para o aviso de privacidade apresentado pela aplicação.
+- O app mantém biblioteca, estatísticas e Client ID público no armazenamento local do navegador; o fluxo Spotify usa estado PKCE temporário de sessão. Arquivos escolhidos no player não são enviados pelo app.
+- Termos de busca são encaminhados a provedores externos; a Vercel e os provedores podem processar logs técnicos, como IP e dados de requisição, conforme seus próprios termos.
+- **Antes do deploy público**, substitua o campo de contato pendente no aviso por um canal privado válido do responsável e confirme com os provedores ativos as finalidades, bases legais, transferências internacionais e prazos de retenção aplicáveis. O aviso é informativo e não substitui validação jurídica.
 
 ## Próximas evoluções
 

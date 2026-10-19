@@ -203,6 +203,12 @@
 				</div>
 				<ol class="detail-track-list"></ol>
 				<p class="detail-empty" hidden>Nenhuma faixa disponível para esta página.</p>
+				<!-- Conteúdo complementar de perfil e discografia / Supplemental artist profile and discography -->
+				<section class="artist-supplemental" aria-labelledby="artist-discography-title" hidden>
+					<h2 id="artist-discography-title">Discografia e perfil</h2>
+					<p class="artist-supplemental__status" role="status"></p>
+					<ul class="artist-discography"></ul>
+				</section>
 			</section>
 		</main>
 
@@ -274,10 +280,11 @@
 		<form class="api-settings-form" method="dialog">
 			<button class="api-settings-close icon-button" value="cancel" aria-label="Fechar"><span class="mdi mdi-close" aria-hidden="true"></span></button>
 			<h2 id="api-settings-title">Configuração das APIs</h2>
-			<p>Deezer e Invidious usam endpoints públicos. Para incluir resultados Spotify, crie um app no Developer Dashboard e informe o Client ID público.</p>
+			<p>Deezer, Invidious, TheAudioDB, MusicBrainz e Lyrics.ovh usam endpoints públicos. O Jamendo pode fornecer faixas completas quando configurado no servidor e autorizado pela licença. Para incluir resultados Spotify, informe o Client ID público.</p>
+			<p>Buscas são encaminhadas aos provedores selecionados. Estatísticas e preferências ficam neste navegador. <a href="privacy.html" target="_blank" rel="noopener noreferrer">Leia o aviso de privacidade e seus direitos LGPD</a>.</p>
 			<label for="spotify-client-id">Spotify Client ID</label>
 			<input id="spotify-client-id" name="spotifyClientId" autocomplete="off" spellcheck="false" placeholder="Cole aqui o Client ID público">
-			<p class="api-settings-hint">Credenciais privadas não devem ser digitadas aqui. O arquivo .env local é ignorado pelo Git.</p>
+			<p class="api-settings-hint">Credenciais privadas devem ficar no arquivo .env local, ignorado pelo Git; não as cole nesta janela. Consulte o README para configurar o Jamendo.</p>
 			<div class="api-settings-actions">
 				<button class="api-settings-connect" type="button">Conectar Spotify</button>
 				<button class="api-settings-save" type="submit">Salvar configuração</button>
