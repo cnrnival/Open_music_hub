@@ -20,6 +20,9 @@
 	<header class="topbar">
 		<button class="brand" type="button" aria-label="Página inicial"><span class="font-semibold tracking-[0.2em]" aria-hidden="true">•••</span></button>
 		<div class="topbar__navigation">
+			<button class="hamburger-button" type="button" aria-label="Abrir biblioteca" id="hamburgerButton" aria-expanded="false" aria-controls="libraryPanel">
+				<span class="mdi mdi-menu" aria-hidden="true"></span>
+			</button>
 			<button class="icon-button topbar__home" type="button" aria-label="Início"><span class="mdi mdi-home" aria-hidden="true"></span></button>
 			<div class="search-box">
 				<span class="mdi mdi-magnify" aria-hidden="true"></span>
@@ -40,7 +43,7 @@
 	<div class="workspace">
 		<!-- A biblioteca e os painéis permanecem enquanto as páginas centrais mudam de estado.
 		     The library and panels remain in place while the central pages change state. -->
-		<aside class="library-panel panel">
+		<aside class="library-panel panel" id="libraryPanel">
 			<div class="library-panel__heading">
 				<button class="library-panel__title" type="button" aria-label="Recolher biblioteca"><span class="mdi mdi-bookshelf" aria-hidden="true"></span> Sua Biblioteca</button>
 				<div class="library-panel__actions">
@@ -173,6 +176,11 @@
 			<p class="empty-results" hidden>Nenhum conteúdo encontrado.</p>
 			</div>
 
+			<section class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="trends-title">Tendências do Momento</h2><span class="trends-status" role="status"></span></div>
+				<div class="trends-grid"></div>
+			</section>
+
 			<section class="news-view" aria-labelledby="news-title" aria-live="polite" hidden>
 				<button class="detail-back news-back" type="button"><span class="mdi mdi-arrow-left" aria-hidden="true"></span> Voltar</button>
 				<header class="section-heading"><h1 id="news-title">Novidades</h1></header>
@@ -197,6 +205,7 @@
 					<button class="detail-play" type="button" aria-label="Reproduzir seleção"><span class="mdi mdi-play" aria-hidden="true"></span></button>
 					<button class="detail-shuffle icon-button" type="button" aria-label="Alternar reprodução aleatória" aria-pressed="false"><span class="mdi mdi-shuffle" aria-hidden="true"></span></button>
 					<button class="detail-save icon-button" type="button" aria-label="Salvar na biblioteca" aria-pressed="false"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
+					<button class="detail-download icon-button" type="button" aria-label="Baixar para ouvir offline" aria-pressed="false"><span class="mdi mdi-download-outline" aria-hidden="true"></span></button>
 				</div>
 				<div class="detail-track-heading" aria-hidden="true">
 					<span>#</span><span>Título</span><span>Reproduções</span><span><span class="mdi mdi-clock-outline"></span></span>
@@ -255,7 +264,9 @@
 			</div>
 			<div class="music-player__timeline"><span class="music-player__time music-player__current-time">0:00</span><input class="music-player__progress" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progresso da música" title="Clique ou arraste para escolher uma posição" disabled><span class="music-player__time music-player__duration">0:00</span></div>
 		</div>
+		<button class="music-player__expand" type="button" aria-label="Expandir player" aria-expanded="false"><span class="mdi mdi-chevron-up" aria-hidden="true"></span></button>
 		<div class="music-player__extras">
+			<button type="button" data-download-current aria-label="Baixar para ouvir offline"><span class="mdi mdi-download-outline" aria-hidden="true"></span></button>
 			<button type="button" aria-label="Letra"><span class="mdi mdi-microphone-outline" aria-hidden="true"></span></button>
 			<button type="button" aria-label="Fila"><span class="mdi mdi-playlist-music" aria-hidden="true"></span></button>
 			<button type="button" aria-label="Conectar a um dispositivo"><span class="mdi mdi-speaker" aria-hidden="true"></span></button>

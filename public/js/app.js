@@ -87,16 +87,17 @@ let libraryFilter = "all";
 let homeFilter = "all";
 let alphabeticalSort = false;
 let librarySequence = libraryList.children.length;
-const savedLibraryItems = new Map();
+
 let isSeeking = false;
 let isPointerSeeking = false;
 let ignoreNextRangeChange = false;
 let playbackRequestId = 0;
 let jamendoFallbackAttemptId = 0;
+let currentOfflineObjectUrl = "";
 
-libraryList.querySelectorAll(".library-item").forEach((item, index) => {
-    item.dataset.sequence = String(librarySequence - index);
-});
+// Library starts empty by default - items are added via search/pin and persisted in localStorage
+// A biblioteca inicia vazia por padrão - itens são adicionados via busca/pin e persistidos no localStorage
+libraryList.replaceChildren();
 
 audio.volume = previousVolume;
 audio.src = "music/lil-giela-cristal.mp3";
@@ -244,12 +245,21 @@ function normalizeJamendoItem(item) {
     };
 }
 
-// Convert Invidious video metadata into the shared track shape without creating an audio stream URL.
-// Converte metadados de vídeo do Invidious para o formato de faixa compartilhado sem criar URL de áudio.
+// Convert Invidious video metadata into the shared track shape, extracting the direct audio URL from adaptiveFormats.
+// Converte metadados de vídeo do Invidious para o formato de faixa compartilhado, extraindo a URL de áudio direto de adaptiveFormats.
 function normalizeInvidiousItem(item) {
     const videoId = String(item.videoId || "");
     const thumbnail = [...(item.videoThumbnails || [])]
         .sort((left, right) => (right.width || 0) - (left.width || 0))[0];
+    // Usa a URL de áudio já resolvida pelo servidor (proxy de mesma origem) ou extrai de adaptiveFormats.
+    // Use the server-resolved audio URL (same-origin proxy) or extract it from adaptiveFormats.
+    let audioUrl = item.audioUrl || "";
+    if (!audioUrl && Array.isArray(item.adaptiveFormats)) {
+        const audioFormat = item.adaptiveFormats.find((format) => format.container && (format.container === "webm" || format.container === "m4a"));
+        if (audioFormat && audioFormat.url) {
+            audioUrl = audioFormat.url;
+        }
+    }
     return {
         provider: "invidious",
         kind: "track",
@@ -260,6 +270,12 @@ function normalizeInvidiousItem(item) {
         artistId: item.authorId || "",
         image: thumbnail?.url || "",
         previewUrl: "",
+        // Áudio completo obtido via adaptiveFormats (nunca a prévia de 30 segundos).
+        // Full audio obtained from adaptiveFormats (never the 30-second preview).
+        audioUrl,
+        directAudioUrl: item.directAudioUrl || "",
+        audioMimeType: item.audioMimeType || "",
+        audioContainer: item.audioContainer || "",
         externalUrl: videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : "",
         durationSeconds: Number(item.lengthSeconds) || 0,
         viewCount: Number(item.viewCount) || 0
@@ -921,9 +937,16 @@ async function fetchProviderDetail(item) {
         };
     }
     if (item.provider === "invidious") {
-        const payload = await fetchJson(API_CONFIG.providers.invidious.detailPath(item.id));
-        const detailedItem = normalizeInvidiousItem(payload.item);
-        return { item: detailedItem, tracks: [detailedItem] };
+        // A instância pública pode falhar em um momento isolado; a faixa continua tocável.
+        // The public instance may fail intermittently; the track stays playable.
+        try {
+            const payload = await fetchJson(API_CONFIG.providers.invidious.detailPath(item.id));
+            const detailedItem = normalizeInvidiousItem(payload.item);
+            return { item: { ...item, ...detailedItem }, tracks: [detailedItem] };
+        } catch (error) {
+            console.error("Could not load Invidious metadata.", error);
+            return { item, tracks: [item] };
+        }
     }
     if (item.provider === "deezer") {
         const payload = await fetchJson(API_CONFIG.providers.deezer.detailPath(item.kind, item.id));
@@ -1029,8 +1052,184 @@ function renderTrackRows(tracks) {
     });
 }
 
-// Seleciona uma faixa; se não houver prévia, abre a página oficial do Spotify quando disponível.
-// Select a track from either catalog; Spotify tracks without previews open their official page.
+// Resolve (e memoriza) a URL de áudio completo do Invidious para uma faixa.
+// Resolve (and memoize) the full Invidious audio URL for a track.
+async function ensureInvidiousAudioUrl(track, requestId) {
+    if (!track || track.provider !== "invidious" || !track.id) {
+        return "";
+    }
+    if (track.audioUrl || track.directAudioUrl) {
+        return track.directAudioUrl || track.audioUrl;
+    }
+    status.textContent = "Extraindo o áudio completo no Invidious…";
+    // A instância pública falha em rajadas; uma segunda tentativa evita erro transitório.
+    // The public instance fails in bursts; one more attempt avoids a transient error.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+            const payload = await fetchJson(API_CONFIG.providers.invidious.audioPath(track.id));
+            if (requestId !== undefined && requestId !== playbackRequestId) {
+                return "";
+            }
+            const audioUrl = payload.audioUrl || payload.audio?.url || "";
+            const directAudioUrl = payload.directAudioUrl || payload.audio?.directUrl || "";
+            if (!audioUrl && !directAudioUrl) {
+                return "";
+            }
+            track.audioUrl = audioUrl;
+            track.directAudioUrl = directAudioUrl;
+            track.audioMimeType = payload.audio?.mimeType || "";
+            track.audioContainer = payload.audio?.container || "";
+            // Reproduz pela URL direta (IP do usuário) e mantém o proxy de mesma origem como alternativa.
+            // Play from the direct URL (user's IP) keeping the same-origin proxy as a fallback.
+            return directAudioUrl || audioUrl;
+        } catch (error) {
+            console.error("Could not resolve the Invidious audio stream.", error);
+            if (attempt === 1) {
+                await new Promise((resolve) => window.setTimeout(resolve, 800));
+            }
+        }
+    }
+    return "";
+}
+
+// Procura o áudio completo de uma faixa de outro catálogo no Invidious (sem prévias de 30s).
+// Look up a catalog track's full audio on Invidious (never the 30-second previews).
+async function findInvidiousAudioForTrack(track, requestId) {
+    const query = [track.artistName, track.title].filter(Boolean).join(" ").trim();
+    if (!query) {
+        return "";
+    }
+    status.textContent = "Buscando o áudio completo no Invidious…";
+    try {
+        const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
+        if (requestId !== undefined && requestId !== playbackRequestId) {
+            return "";
+        }
+        const video = (payload.results || []).find((entry) => entry.videoId);
+        if (!video) {
+            return "";
+        }
+        const resolved = { provider: "invidious", kind: "track", id: String(video.videoId) };
+        const audioUrl = await ensureInvidiousAudioUrl(resolved, requestId);
+        if (!audioUrl) {
+            return "";
+        }
+        track.invidiousVideoId = resolved.id;
+        track.audioUrl = resolved.audioUrl || audioUrl;
+        track.directAudioUrl = resolved.directAudioUrl || "";
+        track.audioMimeType = resolved.audioMimeType || "";
+        track.audioContainer = resolved.audioContainer || "";
+        return audioUrl;
+    } catch (error) {
+        console.error("Could not find a full Invidious audio source.", error);
+        return "";
+    }
+}
+
+// Atualiza os botões de download conforme a faixa está (ou não) guardada para uso offline.
+// Update download buttons according to whether the current track is stored offline.
+async function updateDownloadIndicators() {
+    const buttons = [
+        document.querySelector("[data-download-current]"),
+        document.querySelector(".detail-download")
+    ].filter(Boolean);
+    let cached = false;
+    try {
+        if (currentTrack && currentTrack.provider !== "local") {
+            const offline = await import("./offline.mjs");
+            cached = await offline.hasOfflineCopy(currentTrack);
+        }
+    } catch (error) {
+        console.warn("Could not inspect the offline cache.", error);
+    }
+    buttons.forEach((button) => {
+        button.dataset.downloaded = String(cached);
+        button.setAttribute("aria-label", cached ? "Disponível offline — baixar novamente" : "Baixar para ouvir offline");
+        const icon = button.querySelector(".mdi");
+        if (icon) {
+            icon.className = cached ? "mdi mdi-download-circle" : "mdi mdi-download-outline";
+        }
+    });
+}
+
+// Baixa o áudio da faixa: guarda no Cache API e salva o arquivo no dispositivo do usuário.
+// Download the track audio: store it in the Cache API and save the file to the user's device.
+async function downloadTrackAudio(track = currentTrack) {
+    if (!track || !track.title) {
+        showToast("Nenhuma faixa selecionada para download.");
+        return;
+    }
+    if (track.provider === "local") {
+        showToast("Este arquivo já está no seu dispositivo.");
+        return;
+    }
+    let offline;
+    try {
+        offline = await import("./offline.mjs");
+    } catch (error) {
+        console.error("Offline module unavailable.", error);
+        showToast("Recurso offline indisponível neste navegador.");
+        return;
+    }
+    if (!offline.isOfflineCacheSupported()) {
+        showToast("Este navegador não suporta armazenamento offline.");
+        return;
+    }
+    try {
+        let blob = await offline.getOfflineBlob(track);
+        if (!blob) {
+            let source = "";
+            if (track.provider === "invidious") {
+                await ensureInvidiousAudioUrl(track);
+                // O proxy de mesma origem evita CORS no fetch; a URL direta é o plano B.
+                // The same-origin proxy avoids fetch CORS; the direct URL is the fallback.
+                source = track.audioUrl || track.directAudioUrl || "";
+            } else {
+                source = track.playbackUrl || await findInvidiousAudioForTrack(track);
+            }
+            if (!source) {
+                showToast("Não foi possível obter o áudio para download.");
+                return;
+            }
+            showToast("Baixando o áudio completo…");
+            const response = await fetch(source);
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+            blob = await response.blob();
+            if (!blob.size) {
+                throw new Error("arquivo vazio");
+            }
+            await offline.saveOfflineBlob(track, blob);
+        }
+        const fileName = offline.saveBlobToDevice(track, blob);
+        await updateDownloadIndicators();
+        showToast(fileName + " disponível para ouvir offline.");
+    } catch (error) {
+        console.error("Could not download the track audio.", error);
+        showToast("Não foi possível baixar o áudio: " + error.message);
+    }
+}
+
+// Se a URL direta do YouTube for recusada (403/limite), troca para o proxy de mesma origem.
+// If the direct YouTube URL is refused (403/rate limit), switch to the same-origin proxy.
+function installMediaFallback(track, source) {
+    if (!track?.audioUrl || !track?.directAudioUrl || source !== track.directAudioUrl) {
+        return;
+    }
+    audio.addEventListener("error", () => {
+        if (String(audio.currentSrc || audio.src || "").includes("action=stream")) {
+            return;
+        }
+        status.textContent = "Fonte direta bloqueada; tentando o proxy local…";
+        audio.src = track.audioUrl;
+        audio.load();
+        playAudio(true);
+    }, { once: true });
+}
+
+// Seleciona uma faixa e resolve o áudio completo, priorizando a cópia offline do Cache API.
+// Select a track and resolve the full audio, preferring the offline Cache API copy.
 async function playTrack(track, { autoplay = true } = {}) {
     const requestId = ++playbackRequestId;
     currentTrack = track;
@@ -1066,41 +1265,88 @@ async function playTrack(track, { autoplay = true } = {}) {
     audio.load();
     playButton.disabled = true;
     progress.disabled = true;
-    let playableUrl = track.playbackUrl || track.previewUrl;
-    let usingJamendoFallback = track.provider === "jamendo";
-    if (jamendoEnabled
-        && !track.playbackUrl
-        && ["deezer", "spotify"].includes(track.provider)
-        && track.title
-        && track.artistName) {
-        const jamendoMatch = await findLicensedJamendoMatch(track, requestId);
+    let playableUrl = "";
+    let usingJamendoFallback = false;
+    let usingOfflineCopy = false;
+
+    if (currentOfflineObjectUrl) {
+        URL.revokeObjectURL(currentOfflineObjectUrl);
+        currentOfflineObjectUrl = "";
+    }
+
+    // 1) Prioriza a cópia offline no Cache API para permitir escuta sem rede.
+    // 1) Prefer the offline copy in the Cache API so playback works without network.
+    try {
+        const offline = await import("./offline.mjs");
+        const cachedUrl = await offline.getOfflineBlobUrl(track);
+        if (requestId !== playbackRequestId) {
+            if (cachedUrl) {
+                URL.revokeObjectURL(cachedUrl);
+            }
+            return;
+        }
+        if (cachedUrl) {
+            playableUrl = cachedUrl;
+            currentOfflineObjectUrl = cachedUrl;
+            usingOfflineCopy = true;
+            status.textContent = "Reproduzindo do cache offline.";
+        }
+    } catch (error) {
+        console.warn("Offline cache unavailable.", error);
+    }
+
+    // 2) Invidious: extrai o fluxo de áudio completo (adaptiveFormats) quando ainda não resolvido.
+    // 2) Invidious: extract the full audio stream (adaptiveFormats) when not resolved yet.
+    if (!playableUrl && track.provider === "invidious") {
+        playableUrl = await ensureInvidiousAudioUrl(track, requestId);
         if (requestId !== playbackRequestId) {
             return;
         }
-        if (jamendoMatch) {
-            playableUrl = jamendoMatch.playbackUrl;
-            usingJamendoFallback = true;
-            status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+        if (playableUrl) {
+            status.textContent = "";
         }
     }
+
+    // 3) Demais provedores: Jamendo licenciado e, depois, áudio completo no Invidious.
+    // As prévias de 30 segundos da Deezer/Spotify não são usadas.
+    // 3) Other providers: licensed Jamendo, then full Invidious audio.
+    // The 30-second Deezer/Spotify previews are never used.
+    if (!playableUrl) {
+        if (track.provider === "local") {
+            playableUrl = track.previewUrl || "";
+        } else {
+            if (jamendoEnabled && !track.playbackUrl && track.title && track.artistName) {
+                const jamendoMatch = await findLicensedJamendoMatch(track, requestId);
+                if (requestId !== playbackRequestId) {
+                    return;
+                }
+                if (jamendoMatch) {
+                    playableUrl = jamendoMatch.playbackUrl;
+                    usingJamendoFallback = true;
+                    status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+                }
+            }
+            if (!playableUrl && track.provider !== "jamendo" && track.title) {
+                playableUrl = await findInvidiousAudioForTrack(track, requestId);
+                if (requestId !== playbackRequestId) {
+                    return;
+                }
+            }
+        }
+    }
+
     if (!playableUrl) {
         pendingPlayCount = false;
         playButton.disabled = true;
         progress.disabled = true;
-        const providerUrl = safeProviderUrl(track.externalUrl);
-        if (providerUrl) {
-            window.open(providerUrl, "_blank", "noopener,noreferrer");
-        }
-        status.textContent = track.provider === "spotify"
-            ? "Esta faixa não tem prévia disponível. A página oficial será aberta."
-            : track.provider === "invidious"
-                ? "O Invidious fornece metadados, não um stream de áudio licenciado. Abrindo o vídeo oficial."
-                : "Esta faixa não tem prévia disponível no catálogo.";
+        status.textContent = ["invidious", "deezer", "spotify"].includes(track.provider)
+            ? "Não foi possível obter o áudio completo desta faixa. Tente outra versão."
+            : "Esta faixa não tem áudio disponível no catálogo.";
         showToast(status.textContent);
         return;
     }
 
-    if (!usingJamendoFallback) {
+    if (!usingJamendoFallback && !usingOfflineCopy) {
         status.textContent = "";
     }
     playButton.disabled = true;
@@ -1108,6 +1354,7 @@ async function playTrack(track, { autoplay = true } = {}) {
     audio.pause();
     audio.src = playableUrl;
     audio.load();
+    installMediaFallback(track, playableUrl);
     audio.addEventListener("loadedmetadata", () => {
         if (currentTrack === track) {
             if (autoplay) {
@@ -1119,6 +1366,7 @@ async function playTrack(track, { autoplay = true } = {}) {
             }
         }
     }, { once: true });
+    void updateDownloadIndicators();
 }
 
 // Find an exact, license-approved Jamendo match without accepting arbitrary provider URLs.
@@ -1201,51 +1449,182 @@ function toggleSave(item) {
         });
     }
     if (["track", "artist", "album", "playlist"].includes(item.kind)) {
-        syncSavedLibraryItem(item, updated.saved);
+        setLibraryEntry(item, updated.saved);
     }
     return updated;
 }
 
-// Mantém faixas salvas na biblioteca visível e restaura a lista em visitas futuras.
-// Persist saved tracks in the visible library and restore them on the next visit.
-function syncSavedLibraryItem(item, saved) {
-    const key = `${item.provider}:${item.kind}:${item.id}`;
-    const existing = savedLibraryItems.get(key);
-    if (saved && !existing) {
-        const categoryDetails = item.kind === "track"
-            ? `Faixa • ${item.artistName || "Artista desconhecido"}`
-            : item.kind === "album" && item.artistName
-                ? `Álbum • ${item.artistName}`
-                : item.kind === "playlist"
-                    ? "Playlist salva"
-                    : "Artista";
-        savedLibraryItems.set(key, addLibraryItem(item.title, item.kind, categoryDetails));
-    } else if (!saved && existing) {
-        existing.remove();
-        savedLibraryItems.delete(key);
-        const index = searchableItems.indexOf(existing);
-        if (index >= 0) {
-            searchableItems.splice(index, 1);
+// Biblioteca persistida somente neste navegador: começa vazia e guarda favoritos/fixados.
+// Browser-persisted library: starts empty and keeps favorited/pinned items.
+const libraryStorageKey = "open-music-hub:library";
+let librarySort = "recent";
+
+function readLibrary() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(libraryStorageKey) || "[]");
+        if (!Array.isArray(parsed)) {
+            return [];
         }
-        updateLibraryVisibility();
+        return parsed.filter((entry) => entry && entry.provider && entry.title);
+    } catch (error) {
+        console.error("Could not read the saved library.", error);
+        return [];
     }
 }
 
-function restoreSavedLibraryItems() {
-    const stats = readLocalStats();
-    Object.entries(stats).forEach(([key, value]) => {
-        const [provider, kind] = key.split(":");
-        if (!["deezer", "invidious", "jamendo", "spotify", "local"].includes(provider)
-            || !["track", "artist", "album", "playlist"].includes(kind)) {
-            return;
+function writeLibrary(entries) {
+    try {
+        localStorage.setItem(libraryStorageKey, JSON.stringify(entries));
+        return true;
+    } catch (error) {
+        console.error("Could not persist the saved library.", error);
+        showToast("Não foi possível salvar a biblioteca neste navegador.");
+        return false;
+    }
+}
+
+function libraryEntryKey(entry) {
+    return entry.provider + ":" + (entry.kind || "track") + ":" + (entry.id || entry.title);
+}
+
+function libraryCategoryLabel(kind) {
+    return { artist: "Artista", album: "Álbum", playlist: "Playlist", track: "Música" }[kind] || "Item";
+}
+
+function libraryCategoryIcon(kind) {
+    return { artist: "mdi-account-music", album: "mdi-album", playlist: "mdi-playlist-music", track: "mdi-music" }[kind] || "mdi-music";
+}
+
+// Itens fixados aparecem primeiro; o restante segue a ordenação escolhida.
+// Pinned items come first; the rest follow the selected sort order.
+function sortedLibraryEntries() {
+    const entries = readLibrary();
+    entries.sort((left, right) => {
+        if (Boolean(right.pinned) !== Boolean(left.pinned)) {
+            return Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
         }
-        if (!value?.saved || !value.title) {
-            return;
+        if (librarySort === "alphabetical") {
+            return String(left.title).localeCompare(String(right.title), "pt-BR");
         }
-        const id = key.slice(key.indexOf(":", key.indexOf(":") + 1) + 1);
-        const item = { provider, kind, id, title: value.title, artistName: value.artistName || "" };
-        syncSavedLibraryItem(item, true);
+        return (Number(right.addedAt) || 0) - (Number(left.addedAt) || 0);
     });
+    return entries;
+}
+
+// Adiciona ou remove um item salvo e persiste a lista no localStorage.
+// Add or remove a saved item and persist the list in localStorage.
+function setLibraryEntry(item, saved) {
+    if (!item || !["artist", "album", "playlist", "track"].includes(item.kind)) {
+        return;
+    }
+    const entries = readLibrary();
+    const key = libraryEntryKey(item);
+    const index = entries.findIndex((entry) => libraryEntryKey(entry) === key);
+    if (saved && index < 0) {
+        entries.push({
+            provider: item.provider,
+            kind: item.kind,
+            id: String(item.id || ""),
+            title: item.title,
+            artistName: item.artistName || "",
+            image: item.image || "",
+            pinned: false,
+            addedAt: Date.now()
+        });
+    } else if (saved && index >= 0) {
+        entries[index] = { ...entries[index], title: item.title, artistName: item.artistName || entries[index].artistName };
+    } else if (!saved && index >= 0) {
+        entries.splice(index, 1);
+    } else {
+        return;
+    }
+    writeLibrary(entries);
+    renderLibrary();
+}
+
+// Fixa ou desafixa um item, mantendo-o no topo da biblioteca.
+// Pin or unpin an item, keeping it at the top of the library.
+function toggleLibraryPin(entryKey) {
+    const entries = readLibrary();
+    const stored = entries.find((entry) => libraryEntryKey(entry) === entryKey);
+    if (!stored) {
+        return;
+    }
+    stored.pinned = !stored.pinned;
+    writeLibrary(entries);
+    renderLibrary();
+    showToast(stored.pinned ? `${stored.title} fixado no topo da biblioteca.` : `${stored.title} desafixado.`);
+}
+
+async function openLibraryEntry(entry) {
+    closeLibraryDrawerIfOpen();
+    await openDetail({
+        provider: entry.provider,
+        kind: entry.kind || "track",
+        id: entry.id,
+        title: entry.title,
+        artistName: entry.artistName || (entry.kind === "artist" ? entry.title : ""),
+        image: entry.image || ""
+    });
+}
+
+// Renderiza a lista vazia ou os itens salvos com o botão de fixar (📌).
+// Render either the empty state or the saved items with the pin control (📌).
+function renderLibrary() {
+    libraryList.replaceChildren();
+    const entries = sortedLibraryEntries();
+    if (!entries.length) {
+        const empty = document.createElement("p");
+        empty.className = "library-empty";
+        empty.textContent = "Sua biblioteca está vazia. Favorite artistas, álbuns e playlists com o botão +.";
+        libraryList.append(empty);
+        updateLibraryVisibility();
+        return;
+    }
+    entries.forEach((entry) => {
+        const key = libraryEntryKey(entry);
+        const card = document.createElement("div");
+        card.className = `library-item${entry.pinned ? " pinned" : ""}`;
+        card.dataset.searchable = "";
+        card.dataset.category = entry.kind;
+        card.dataset.provider = entry.provider;
+        card.dataset.kind = entry.kind;
+        card.dataset.id = entry.id || "";
+
+        const openButton = document.createElement("button");
+        openButton.className = "library-item__open";
+        openButton.type = "button";
+        const icon = document.createElement("span");
+        icon.className = `library-item__art mdi ${libraryCategoryIcon(entry.kind)}`;
+        icon.setAttribute("aria-hidden", "true");
+        const info = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = entry.title;
+        const description = document.createElement("small");
+        const details = libraryCategoryLabel(entry.kind) + (entry.artistName && entry.kind !== "artist" ? ` • ${entry.artistName}` : "");
+        description.textContent = entry.pinned ? `📌 ${details}` : details;
+        info.append(name, description);
+        openButton.append(icon, info);
+        openButton.addEventListener("click", () => {
+            void openLibraryEntry(entry);
+        });
+
+        const pinButton = document.createElement("button");
+        pinButton.className = "library-item__pin-button";
+        pinButton.type = "button";
+        pinButton.setAttribute("aria-pressed", String(Boolean(entry.pinned)));
+        pinButton.setAttribute("aria-label", entry.pinned ? `Desafixar ${entry.title}` : `Fixar ${entry.title}`);
+        pinButton.title = entry.pinned ? "Desafixar" : "Fixar no topo";
+        pinButton.innerHTML = `<span class="mdi ${entry.pinned ? "mdi-pin" : "mdi-pin-outline"}" aria-hidden="true"></span>`;
+        pinButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleLibraryPin(key);
+        });
+
+        card.append(openButton, pinButton);
+        libraryList.append(card);
+    });
+    updateLibraryVisibility();
 }
 
 // Sincroniza os controles de salvamento quando outra faixa do catálogo passa a ser atual.
@@ -1278,17 +1657,182 @@ function syncCurrentDetailSaveState() {
 
 // Exibe a página inicial sem descartar o estado de navegação voltar/avançar do navegador.
 // Restore the home view without discarding the browser's back/forward navigation state.
-function showHomeView() {
+async function showHomeView() {
     currentDetail = null;
     detailView.hidden = true;
     newsView.hidden = true;
     document.querySelector(".home-view").hidden = false;
+    // Carregar tendências do momento ao abrir a tela inicial
+    // Load moment's trends when opening the home screen
+    await loadTrends();
     window.history.replaceState({ home: true }, "", `${window.location.pathname}${window.location.search}`);
     mainView.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // Carrega lançamentos dos artistas salvos, sem interromper a tela quando um provedor falha.
 // Load releases from saved artists without breaking the page when one provider is unavailable.
+
+// Extrai o ID do YouTube das URLs dos provedores para abrir a faixa no Invidious.
+// Extract the YouTube ID from provider URLs so trending cards open playable Invidious tracks.
+function extractYouTubeVideoId(value) {
+    if (!value) {
+        return "";
+    }
+    const match = String(value).match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{6,32})/);
+    return match ? match[1] : "";
+}
+
+// Converte uma linha de tendência do TheAudioDB no modelo de cartão compartilhado.
+// Convert a TheAudioDB trending row into the shared card model.
+function normalizeAudioDbTrend(item) {
+    const title = item.strAlbum || item.strTrack || "";
+    if (!title) {
+        return null;
+    }
+    return {
+        provider: "audiodb",
+        kind: "album",
+        id: String(item.idAlbum || item.idTrack || item.idTrend || ""),
+        title,
+        artistName: item.strArtist || "",
+        image: item.strAlbumThumb || item.strTrackThumb || item.strArtistThumb || "",
+        externalUrl: item.strMusicVid || "",
+        chartPlace: Number(item.intChartPlace) || 0,
+        country: String(item.strCountry || "").toUpperCase()
+    };
+}
+
+// Abre uma tendência tocando o áudio completo pelo Invidious.
+// Open a trend by playing its full audio through Invidious.
+async function openTrendItem(trend) {
+    const knownVideoId = extractYouTubeVideoId(trend.externalUrl);
+    if (knownVideoId) {
+        await openDetail({
+            provider: "invidious",
+            kind: "track",
+            id: knownVideoId,
+            title: trend.title,
+            artistName: trend.artistName,
+            image: trend.image
+        });
+        return;
+    }
+    const query = [trend.artistName, trend.title].filter(Boolean).join(" ").trim();
+    if (!query) {
+        return;
+    }
+    showToast(`Procurando "${trend.title}" no Invidious…`);
+    try {
+        const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
+        const video = (payload.results || []).find((entry) => entry.videoId);
+        if (!video) {
+            showToast("Não encontramos essa tendência no Invidious.");
+            return;
+        }
+        await openDetail({
+            provider: "invidious",
+            kind: "track",
+            id: String(video.videoId),
+            title: video.title || trend.title,
+            artistName: video.author || trend.artistName,
+            image: video.videoThumbnails?.[0]?.url || trend.image
+        });
+    } catch (error) {
+        console.error("Could not open the trending item.", error);
+        showToast(`Não foi possível abrir a tendência: ${error.message}`);
+    }
+}
+
+// Carrega as "Tendências do Momento" do TheAudioDB (trending.php) na tela inicial.
+// Load the home "Tendências do Momento" row from TheAudioDB (trending.php).
+async function loadTrends() {
+    const section = document.querySelector(".trends-section");
+    const grid = document.querySelector(".trends-grid");
+    const trendsStatus = document.querySelector(".trends-status");
+    if (!section || !grid) {
+        return;
+    }
+    section.hidden = false;
+    grid.replaceChildren();
+    if (trendsStatus) {
+        trendsStatus.textContent = "Carregando tendências do momento…";
+        trendsStatus.removeAttribute("role");
+    }
+    try {
+        // O /trending.php devolve poucos itens por país, então combinamos alguns charts.
+        // /trending.php returns few rows per country, so we merge a few charts.
+        const trendCountries = ["us", "gb", "de", "fr", "it", "br"];
+        const responses = await Promise.allSettled(trendCountries.map((country) => (
+            fetchJson(API_CONFIG.providers.audioDb.trendingPath(country, "itunes", "albums"))
+        )));
+        const fulfilled = responses.filter((result) => result.status === "fulfilled");
+        if (!fulfilled.length) {
+            throw new Error(responses[0]?.reason?.message || "O TheAudioDB não respondeu.");
+        }
+        const seenTrends = new Set();
+        const trends = [];
+        for (const result of fulfilled) {
+            for (const row of Array.isArray(result.value.results) ? result.value.results : []) {
+                const trend = normalizeAudioDbTrend(row);
+                if (!trend) {
+                    continue;
+                }
+                const trendKey = `${trend.artistName}:${trend.title}`.toLocaleLowerCase("pt-BR");
+                if (seenTrends.has(trendKey)) {
+                    continue;
+                }
+                seenTrends.add(trendKey);
+                trends.push(trend);
+                if (trends.length >= 12) {
+                    break;
+                }
+            }
+        }
+        if (!trends.length) {
+            section.hidden = true;
+            if (trendsStatus) {
+                trendsStatus.textContent = "";
+            }
+            return;
+        }
+        trends.forEach((trend) => {
+            const card = document.createElement("button");
+            card.className = "quick-pick";
+            card.type = "button";
+            card.dataset.searchable = "true";
+            card.dataset.contentType = "music";
+            const cover = document.createElement("span");
+            cover.className = "quick-pick__art mdi mdi-album";
+            const image = safeCoverUrl(trend.image);
+            if (image) {
+                cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+                cover.classList.add("has-cover");
+            }
+            const text = document.createElement("span");
+            const heading = document.createElement("strong");
+            heading.textContent = trend.title;
+            const subheading = document.createElement("small");
+            subheading.textContent = [trend.artistName || "Artista desconhecido", trend.chartPlace ? `#${trend.chartPlace} no chart` : "TheAudioDB"].filter(Boolean).join(" • ");
+            text.append(heading, subheading);
+            card.append(cover, text);
+            card.addEventListener("click", () => openTrendItem(trend));
+            grid.append(card);
+        });
+        if (trendsStatus) {
+            trendsStatus.textContent = `${trends.length} tendências do TheAudioDB • toque para ouvir no Invidious`;
+        }
+    } catch (error) {
+        console.error("Could not load music trends.", error);
+        section.hidden = true;
+        if (trendsStatus) {
+            trendsStatus.textContent = `Não foi possível carregar as tendências: ${error.message}`;
+            trendsStatus.setAttribute("role", "alert");
+        }
+    }
+}
+
+// Mostra a página de notícias
+// Show the news page
 async function showNewsView({ history = true } = {}) {
     currentDetail = null;
     document.querySelector(".home-view").hidden = true;
@@ -1467,45 +2011,6 @@ async function openNamedCollection(name, kind) {
     } catch (error) {
         console.error(`Could not look up the ${kind} "${name}".`, error);
         showToast(`Não foi possível buscar este conteúdo: ${error.message}`);
-    }
-}
-
-function addLibraryItem(name, category, details) {
-    const item = document.createElement("button");
-    item.className = "library-item";
-    item.type = "button";
-    item.dataset.searchable = "";
-    item.dataset.category = category;
-    item.dataset.sequence = String(librarySequence++);
-
-    const icon = document.createElement("span");
-    icon.className = `library-item__art mdi ${category === "playlist" ? "mdi-playlist-music" : category === "artist" ? "mdi-account-music" : "mdi-music"}`;
-    icon.setAttribute("aria-hidden", "true");
-
-    const info = document.createElement("span");
-    const itemName = document.createElement("strong");
-    itemName.textContent = name;
-    const description = document.createElement("small");
-    description.textContent = details;
-    info.append(itemName, description);
-    item.append(icon, info);
-    libraryList.prepend(item);
-    searchableItems.push(item);
-    item.addEventListener("click", () => selectLibraryItem(item));
-    updateLibraryVisibility();
-    return item;
-}
-
-function selectLibraryItem(item) {
-    libraryList.querySelectorAll(".library-item").forEach((entry) => {
-        entry.classList.toggle("is-selected", entry === item);
-    });
-    const name = item.querySelector("strong").textContent;
-    if (item.dataset.category === "artist") {
-        openNamedArtist(name);
-    } else {
-        const kind = ["track", "album", "playlist"].includes(item.dataset.category) ? item.dataset.category : "playlist";
-        openNamedCollection(name, kind);
     }
 }
 
@@ -1925,6 +2430,8 @@ document.querySelectorAll("[data-library-filter]").forEach((button) => {
     button.addEventListener("click", () => filterLibrary(button.dataset.libraryFilter));
 });
 
+// Pin/unpin library items - toggle 📌 state and persist to localStorage
+// Fixar/desfixar itens da biblioteca - alterna estado 📌 e persist no localStorage
 const libraryFilterCycle = ["all", "artist", "album", "podcast"];
 document.querySelector(".library-panel__more").addEventListener("click", () => {
     const currentIndex = libraryFilterCycle.indexOf(libraryFilter);
@@ -1936,16 +2443,8 @@ document.querySelector(".library-panel__more").addEventListener("click", () => {
 
 document.querySelector(".sort-button").addEventListener("click", (event) => {
     alphabeticalSort = !alphabeticalSort;
-    const items = [...libraryList.querySelectorAll(".library-item")];
-    if (alphabeticalSort) {
-        items.sort((left, right) => left.querySelector("strong").textContent.localeCompare(
-            right.querySelector("strong").textContent,
-            "pt-BR"
-        ));
-    } else {
-        items.sort((left, right) => Number(right.dataset.sequence) - Number(left.dataset.sequence));
-    }
-    items.forEach((item) => libraryList.append(item));
+    librarySort = alphabeticalSort ? "alphabetical" : "recent";
+    renderLibrary();
     event.currentTarget.firstChild.textContent = alphabeticalSort ? "A–Z " : "Recentes ";
     event.currentTarget.setAttribute(
         "aria-label",
@@ -1957,13 +2456,52 @@ document.querySelector(".import-card__close").addEventListener("click", () => {
     document.querySelector(".import-card").hidden = true;
 });
 
-document.querySelector(".library-panel__title").addEventListener("click", () => {
+// No celular a biblioteca vira uma gaveta; no desktop ela apenas recolhe para uma faixa estreita.
+// On phones the library becomes a drawer; on desktop it just collapses into a narrow rail.
+function closeLibraryDrawerIfOpen() {
+    if (!libraryPanel.classList.contains("is-open")) {
+        return;
+    }
+    libraryPanel.classList.remove("is-open");
+    document.body.classList.remove("library-drawer-open");
+    document.querySelector("#hamburgerButton")?.setAttribute("aria-expanded", "false");
+}
+
+const toggleLibraryPanel = () => {
+    const isMobile = window.matchMedia("(max-width: 760px)").matches;
+    const hamburger = document.querySelector("#hamburgerButton");
+    if (isMobile) {
+        const isOpen = libraryPanel.classList.toggle("is-open");
+        document.body.classList.toggle("library-drawer-open", isOpen);
+        hamburger?.setAttribute("aria-expanded", String(isOpen));
+        hamburger?.setAttribute("aria-label", isOpen ? "Fechar biblioteca" : "Abrir biblioteca");
+        return;
+    }
     const isCollapsed = libraryPanel.classList.toggle("is-collapsed");
     workspace.classList.toggle("is-library-collapsed", isCollapsed);
-    document.querySelector(".library-panel__title").setAttribute(
-        "aria-label",
-        isCollapsed ? "Expandir biblioteca" : "Recolher biblioteca"
-    );
+    const titleBtn = document.querySelector(".library-panel__title");
+    if (titleBtn) {
+        titleBtn.setAttribute(
+            "aria-label",
+            isCollapsed ? "Expandir biblioteca" : "Recolher biblioteca"
+        );
+    }
+};
+
+document.querySelector(".library-panel__title").addEventListener("click", toggleLibraryPanel);
+
+document.querySelector("#hamburgerButton").addEventListener("click", toggleLibraryPanel);
+
+// Tocar fora da gaveta fecha a biblioteca no celular.
+// Tapping outside the drawer closes the library on phones.
+document.addEventListener("click", (event) => {
+    if (!libraryPanel.classList.contains("is-open")) {
+        return;
+    }
+    if (event.target.closest(".library-panel") || event.target.closest("#hamburgerButton")) {
+        return;
+    }
+    closeLibraryDrawerIfOpen();
 });
 
 document.querySelector(".library-panel__expand").addEventListener("click", (event) => {
@@ -1984,7 +2522,7 @@ document.querySelector(".app-dialog__form").addEventListener("submit", (event) =
         nameInput.focus();
         return;
     }
-    addLibraryItem(name, "playlist", "Playlist • 0 músicas");
+    setLibraryEntry({ provider: "local", kind: "playlist", id: `playlist-${Date.now()}`, title: name }, true);
     dialog.close();
     showToast(`Playlist "${name}" criada.`);
 });
@@ -2098,9 +2636,7 @@ document.querySelector(".show-all-mixes").addEventListener("click", (event) => {
     event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
 });
 
-document.querySelectorAll(".library-item").forEach((item) => {
-    item.addEventListener("click", () => selectLibraryItem(item));
-});
+
 
 document.querySelectorAll(".quick-pick, .artist-card, .release-card").forEach((item) => {
     item.addEventListener("click", () => {
@@ -2164,6 +2700,28 @@ document.querySelector(".music-player__extras [aria-label='Fila']").addEventList
 
 document.querySelector(".music-player__extras [aria-label='Conectar a um dispositivo']").addEventListener("click", () => {
     showDialog("Conectar a um dispositivo", "A reprodução acontece neste navegador. A seleção de dispositivos Spotify não está disponível.");
+});
+
+// Download e escuta offline da faixa atual (player inferior e página de detalhes).
+// Download and offline playback for the current track (bottom player and detail page).
+document.querySelector(".music-player__extras [data-download-current]").addEventListener("click", () => {
+    void downloadTrackAudio(currentTrack);
+});
+
+document.querySelector(".detail-download").addEventListener("click", () => {
+    void downloadTrackAudio(currentDetail || currentTrack);
+});
+
+// Player em tela cheia no celular: mostra capa grande, letras e o botão de download.
+// Full-screen player on phones: shows large artwork, lyrics, and the download button.
+const expandPlayerButton = document.querySelector(".music-player__expand");
+expandPlayerButton.addEventListener("click", () => {
+    const musicPlayer = document.querySelector(".music-player");
+    const isExpanded = musicPlayer.classList.toggle("is-expanded");
+    document.body.classList.toggle("player-expanded", isExpanded);
+    expandPlayerButton.setAttribute("aria-expanded", String(isExpanded));
+    expandPlayerButton.setAttribute("aria-label", isExpanded ? "Recolher player" : "Expandir player");
+    expandPlayerButton.querySelector(".mdi").className = isExpanded ? "mdi mdi-chevron-down" : "mdi mdi-chevron-up";
 });
 
 document.querySelector(".music-player__extras [aria-label='Mini player']").addEventListener("click", (event) => {
@@ -2280,5 +2838,8 @@ updateVolume();
 updateProgress();
 updateLibraryVisibility();
 updateHomeVisibility();
-restoreSavedLibraryItems();
+renderLibrary();
 loadApiConfiguration();
+// Carrega as "Tendências do Momento" já na abertura inicial da tela.
+// Load the "Tendências do Momento" row as soon as the home screen opens.
+void loadTrends();

@@ -3,6 +3,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { Readable } = require("node:stream");
 const API_CONFIG = require("./public/js/config.js");
 
 // Resolve caminhos relativos à pasta do projeto e mantenha privado o arquivo de ambiente local.
@@ -13,6 +14,13 @@ const localEnvPath = path.join(projectRoot, ".env");
 const environment = { ...process.env };
 let musicBrainzQueue = Promise.resolve();
 let lastMusicBrainzRequestAt = 0;
+// Cache de URLs de áudio resolvidas para evitar consultar o Invidious a cada requisição de stream.
+// Cache resolved audio URLs so seeking and downloading do not refetch video metadata every time.
+const invidiousAudioCache = new Map();
+const INVIDIOUS_AUDIO_CACHE_TTL_MS = 30 * 60 * 1000;
+// Arquivos de áudio são transferidos por vários minutos; um timeout curto abortaria a metade do fluxo.
+// Audio files stream for minutes; a short timeout would abort the transfer halfway through.
+const INVIDIOUS_MEDIA_TIMEOUT_MS = 5 * 60 * 1000;
 const mimeTypes = new Map([
     [".css", "text/css; charset=utf-8"],
     [".html", "text/html; charset=utf-8"],
@@ -346,6 +354,27 @@ async function handleMusicBrainzArtist(url, response) {
     });
 }
 
+// Busca letra com marcação de tempo (LRC) no LrcLib para sincronizar com o áudio.
+// Fetch time-synced lyrics (LRC) from LrcLib so they can follow audio playback.
+async function fetchSyncedLyrics(artist, title) {
+    const lrclib = API_CONFIG.providers.lyrics.lrclib;
+    const payload = await fetchJsonFromProvider(
+        lrclib.baseUrl,
+        lrclib.lookupPath(artist, title),
+        { "User-Agent": lrclib.userAgent },
+        6000
+    );
+    const syncedLyrics = typeof payload.syncedLyrics === "string" ? payload.syncedLyrics.trim() : "";
+    const plainLyrics = typeof payload.plainLyrics === "string" ? payload.plainLyrics.trim() : "";
+    if (syncedLyrics) {
+        return { synced: true, lyrics: plainLyrics, syncedLyrics };
+    }
+    if (plainLyrics) {
+        return { synced: false, lyrics: plainLyrics, syncedLyrics: "" };
+    }
+    return null;
+}
+
 async function handleLyrics(url, response) {
     const values = requiredQuery(url, ["artist", "title"]);
     if (!values) {
@@ -353,6 +382,32 @@ async function handleLyrics(url, response) {
         return;
     }
     const [artist, title] = values;
+
+    if (url.searchParams.get("format") === "synced") {
+        try {
+            const synced = await fetchSyncedLyrics(artist, title);
+            if (synced) {
+                sendJson(response, 200, {
+                    provider: "lrclib",
+                    artist,
+                    title,
+                    synced: synced.synced,
+                    lyrics: synced.lyrics,
+                    syncedLyrics: synced.syncedLyrics
+                });
+                return;
+            }
+        } catch (error) {
+            // O LrcLib responde 404 quando não conhece a faixa; só então tentamos o Lyrics.ovh.
+            // LrcLib answers 404 for unknown tracks; only then do we try Lyrics.ovh.
+            if (error.statusCode !== 404) {
+                console.error("LrcLib lookup failed.", error.message);
+            }
+        }
+        // Sem LRC disponível: cai para a letra simples do Lyrics.ovh abaixo.
+        // No LRC available: falls through to plain Lyrics.ovh lyrics below.
+    }
+
     const resourcePath = `${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
     let payload;
     try {
@@ -372,7 +427,9 @@ async function handleLyrics(url, response) {
         provider: "lyrics.ovh",
         artist,
         title,
-        lyrics: payload.lyrics
+        synced: false,
+        lyrics: payload.lyrics,
+        syncedLyrics: ""
     });
 }
 
@@ -507,19 +564,44 @@ async function handleDeezerDetail(url, response) {
     });
 }
 
-// Request only video metadata from Invidious and omit every direct media stream field.
-// Consulta apenas metadados de vídeo no Invidious e omite todos os campos de streams de mídia.
-async function fetchInvidious(resourcePath) {
+function delay(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// Consulta metadados no Invidious. A instância pública falha de forma intermitente (5xx),
+// então repetimos algumas vezes com backoff antes de desistir.
+// Fetch Invidious metadata. The public instance fails intermittently (5xx),
+// so we retry a few times with backoff before giving up.
+async function fetchInvidious(resourcePath, { attempts = 4 } = {}) {
     const url = new URL(resourcePath, API_CONFIG.providers.invidious.baseUrl);
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!upstream.ok) {
-        throw new Error(`Invidious responded with HTTP ${upstream.status}.`);
+    // 403/408/425/429 e 5xx são falhas transitórias da instância pública e valem nova tentativa.
+    // 403/408/425/429 and 5xx are transient public-instance failures and are worth retrying.
+    const retryableStatuses = new Set([403, 408, 425, 429]);
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            const upstream = await fetch(url, { signal: AbortSignal.timeout(10000) });
+            if (upstream.ok) {
+                const payload = await upstream.json();
+                if (payload.error) {
+                    throw new Error(String(payload.error));
+                }
+                return payload;
+            }
+            lastError = new Error(`Invidious responded with HTTP ${upstream.status}.`);
+            if (upstream.status < 500 && !retryableStatuses.has(upstream.status)) {
+                throw lastError;
+            }
+        } catch (error) {
+            lastError = error;
+        }
+        if (attempt < attempts) {
+            // Backoff com jitter para não sincronizar novas tentativas no mesmo instante.
+            // Backoff with jitter so retries do not all fire at the same moment.
+            await delay(400 * attempt + Math.floor(Math.random() * 250));
+        }
     }
-    const payload = await upstream.json();
-    if (payload.error) {
-        throw new Error(String(payload.error));
-    }
-    return payload;
+    throw lastError;
 }
 
 // Return only fields used for catalog cards and detail pages, never adaptive or audio formats.
@@ -561,19 +643,210 @@ async function handleInvidiousSearch(url, response) {
     sendJson(response, 200, { provider: "invidious", results: videos });
 }
 
-// Fetch one video's descriptive metadata without forwarding playback formats or stream URLs.
-// Busca os metadados descritivos do vídeo sem encaminhar formatos de reprodução ou URLs de streams.
+// Escolhe o melhor fluxo somente de áudio (m4a/webm) em adaptiveFormats, ignorando vídeo muxado.
+// Pick the best audio-only stream (m4a/webm) from adaptiveFormats, ignoring muxed video tracks.
+function selectInvidiousAudioFormat(video) {
+    const formats = Array.isArray(video?.adaptiveFormats) ? video.adaptiveFormats : [];
+    const audioFormats = formats.filter((format) => {
+        if (!format || !format.url) {
+            return false;
+        }
+        const mimeType = String(format.type || format.encoding || "").toLowerCase();
+        const container = String(format.container || "").toLowerCase();
+        if (mimeType.startsWith("video/")) {
+            return false;
+        }
+        return mimeType.startsWith("audio/")
+            || container === "m4a"
+            || container === "webm"
+            || container === "mp4";
+    });
+    audioFormats.sort((left, right) => (Number(right.bitrate) || 0) - (Number(left.bitrate) || 0));
+    const selected = audioFormats[0];
+    if (!selected) {
+        return null;
+    }
+    return {
+        url: String(selected.url),
+        mimeType: String(selected.type || ""),
+        container: String(selected.container || ""),
+        bitrate: Number(selected.bitrate) || 0,
+        contentLength: Number(selected.clen || selected.contentLength) || 0
+    };
+}
+
+// Resolve (e memoriza) o fluxo de áudio de um vídeo do Invidious.
+// Resolve (and memoize) a video's audio stream from Invidious.
+// Com allowMissing, a falta de áudio devolve apenas os metadados em vez de falhar a página inteira.
+// With allowMissing, a missing audio stream returns metadata instead of failing the whole page.
+async function resolveInvidiousAudio(videoId, { allowMissing = false, force = false } = {}) {
+    const cached = invidiousAudioCache.get(videoId);
+    if (!force && cached && Date.now() - cached.resolvedAt < INVIDIOUS_AUDIO_CACHE_TTL_MS) {
+        return cached;
+    }
+    let video;
+    try {
+        video = await fetchInvidious(API_CONFIG.providers.invidious.endpoints.video(videoId));
+    } catch (error) {
+        // Se a instância falhar depois de todas as tentativas, reutilizamos o último resultado conhecido.
+        // If the instance fails after every attempt, reuse the last known good result.
+        if (cached?.audio) {
+            console.warn(`Serving stale Invidious metadata for ${videoId}.`, error.message);
+            invidiousAudioCache.set(videoId, { ...cached, resolvedAt: Date.now() });
+            return cached;
+        }
+        throw error;
+    }
+    const audio = selectInvidiousAudioFormat(video);
+    if (!audio) {
+        if (allowMissing) {
+            return { item: normalizeInvidiousMetadata(video), audio: null, resolvedAt: Date.now() };
+        }
+        const error = new Error("No audio-only stream is available for this video.");
+        error.statusCode = 404;
+        throw error;
+    }
+    // Resolve URLs relativas contra a instância para que o proxy sempre busque um host HTTPS.
+    // Resolve relative URLs against the instance so the proxy always targets an HTTPS host.
+    const absoluteUrl = new URL(audio.url, API_CONFIG.providers.invidious.baseUrl);
+    if (absoluteUrl.protocol !== "https:") {
+        const error = new Error("Invidious returned a non-HTTPS audio stream.");
+        error.statusCode = 502;
+        throw error;
+    }
+    const resolved = {
+        item: normalizeInvidiousMetadata(video),
+        audio: { ...audio, url: absoluteUrl.href },
+        resolvedAt: Date.now()
+    };
+    invidiousAudioCache.set(videoId, resolved);
+    return resolved;
+}
+
+function invidiousStreamPath(videoId) {
+    return `${API_CONFIG.providers.invidious.proxyBasePath}?action=stream&id=${encodeURIComponent(videoId)}`;
+}
+
+// Devolve metadados e a URL de áudio de mesma origem usada pelo player e pelo download offline.
+// Return metadata plus the same-origin audio URL used by the player and offline download.
 async function handleInvidiousDetail(url, response) {
     const videoId = url.pathname.slice(API_CONFIG.providers.invidious.detailRoutePrefix.length);
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(videoId)) {
         sendJson(response, 400, { error: "Invalid Invidious video ID." });
         return;
     }
-    const video = await fetchInvidious(API_CONFIG.providers.invidious.endpoints.video(videoId));
+    const resolved = await resolveInvidiousAudio(videoId, { allowMissing: true });
+    const streamPath = resolved.audio ? invidiousStreamPath(videoId) : "";
     sendJson(response, 200, {
         provider: "invidious",
-        item: normalizeInvidiousMetadata(video)
+        item: {
+            ...resolved.item,
+            audioUrl: streamPath,
+            directAudioUrl: resolved.audio?.url || "",
+            audioMimeType: resolved.audio?.mimeType || "",
+            audioContainer: resolved.audio?.container || "",
+            audioBitrate: resolved.audio?.bitrate || 0
+        },
+        audioUrl: streamPath,
+        directAudioUrl: resolved.audio?.url || "",
+        audio: resolved.audio
+            ? {
+                url: streamPath,
+                directUrl: resolved.audio.url,
+                mimeType: resolved.audio.mimeType,
+                container: resolved.audio.container,
+                bitrate: resolved.audio.bitrate
+            }
+            : null
     });
+}
+
+// Ação dedicada que devolve apenas a URL de áudio, usada quando a busca não trouxe o formato.
+// Dedicated action returning just the audio URL when search results lacked media formats.
+async function handleInvidiousAudio(url, response) {
+    const videoId = url.searchParams.get("id") || "";
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(videoId)) {
+        sendJson(response, 400, { error: "Invalid Invidious video ID." });
+        return;
+    }
+    const resolved = await resolveInvidiousAudio(videoId);
+    sendJson(response, 200, {
+        provider: "invidious",
+        videoId,
+        item: resolved.item,
+        audioUrl: invidiousStreamPath(videoId),
+        directAudioUrl: resolved.audio.url,
+        audio: {
+            url: invidiousStreamPath(videoId),
+            directUrl: resolved.audio.url,
+            mimeType: resolved.audio.mimeType,
+            container: resolved.audio.container,
+            bitrate: resolved.audio.bitrate
+        }
+    });
+}
+
+// Encaminha o fluxo de áudio do Invidious pela mesma origem, preservando Range para seek e download.
+// Proxy the Invidious audio stream same-origin while preserving Range for seeking and downloads.
+async function handleInvidiousStream(request, response, url) {
+    const videoId = url.searchParams.get("id") || "";
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(videoId)) {
+        sendJson(response, 400, { error: "Invalid Invidious video ID." });
+        return;
+    }
+    const headers = {};
+    if (request.headers.range) {
+        headers.Range = request.headers.range;
+    }
+    const fetchMedia = (audioUrl) => fetch(audioUrl, {
+        headers,
+        signal: AbortSignal.timeout(INVIDIOUS_MEDIA_TIMEOUT_MS)
+    });
+    let resolved = await resolveInvidiousAudio(videoId);
+    let upstream = await fetchMedia(resolved.audio.url);
+    // URLs do YouTube expiram ou são recusadas; uma segunda resolução costuma gerar uma URL válida.
+    // YouTube URLs expire or get rejected; resolving again usually yields a valid URL.
+    if ([403, 404, 410].includes(upstream.status)) {
+        console.warn(`Invidious media refused with HTTP ${upstream.status}; resolving again.`);
+        resolved = await resolveInvidiousAudio(videoId, { force: true });
+        upstream = await fetchMedia(resolved.audio.url);
+    }
+    if (!upstream.ok && upstream.status !== 206) {
+        throw new Error(`Invidious media responded with HTTP ${upstream.status}.`);
+    }
+    const mimeType = resolved.audio.mimeType.split(";")[0].trim();
+    const responseHeaders = {
+        "Content-Type": mimeType.startsWith("audio/") ? mimeType : "audio/mp4",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
+        "X-Content-Type-Options": "nosniff"
+    };
+    const contentLength = upstream.headers.get("content-length");
+    const contentRange = upstream.headers.get("content-range");
+    if (contentLength) {
+        responseHeaders["Content-Length"] = contentLength;
+    }
+    if (contentRange) {
+        responseHeaders["Content-Range"] = contentRange;
+    }
+    response.writeHead(upstream.status === 206 ? 206 : 200, responseHeaders);
+    if (!upstream.body) {
+        response.end();
+        return;
+    }
+    // Sem tratamento de erro, um abort do cliente (ex.: seek ou download cancelado) derrubaria o processo.
+    // Without error handling, a client abort (seek or cancelled download) would crash the process.
+    const stream = Readable.fromWeb(upstream.body);
+    stream.on("error", (error) => {
+        console.warn("Invidious media stream interrupted.", error.message);
+        if (!response.writableEnded) {
+            response.destroy();
+        }
+    });
+    response.on("close", () => {
+        stream.destroy();
+    });
+    stream.pipe(response);
 }
 
 // Transmite arquivos com suporte a intervalos de bytes para permitir avançar no áudio local.
@@ -720,6 +993,14 @@ async function handleRequest(request, response) {
                 await handleInvidiousDetail(url, response);
                 return;
             }
+            if (action === "audio") {
+                await handleInvidiousAudio(url, response);
+                return;
+            }
+            if (action === "stream") {
+                await handleInvidiousStream(request, response, url);
+                return;
+            }
             sendJson(response, 400, { error: "Unsupported Invidious action." });
             return;
         }
@@ -772,3 +1053,4 @@ if (require.main === module) {
 }
 
 module.exports = handleRequest;
+module.exports.selectInvidiousAudioFormat = selectInvidiousAudioFormat;

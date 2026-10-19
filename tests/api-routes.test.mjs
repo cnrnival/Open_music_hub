@@ -187,3 +187,71 @@ test("flat Deezer search routes query every catalog type", async () => {
         globalThis.fetch = originalFetch;
     }
 });
+
+test("synced lyrics route prefers LrcLib time-synced LRC responses", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls = [];
+    globalThis.fetch = async (input) => {
+        requestedUrls.push(new URL(input));
+        return {
+            ok: true,
+            async json() {
+                return {
+                    plainLyrics: "Linha um\nLinha dois",
+                    syncedLyrics: "[00:12.50] Linha um\n[00:18.00] Linha dois"
+                };
+            }
+        };
+    };
+
+    try {
+        const response = await request("/api/lyrics?artist=Daft%20Punk&title=Get%20Lucky&format=synced");
+        assert.equal(response.statusCode, 200);
+        assert.equal(requestedUrls[0].origin, "https://lrclib.net");
+        assert.equal(requestedUrls[0].pathname, "/api/get");
+        assert.equal(requestedUrls[0].searchParams.get("artist_name"), "Daft Punk");
+        assert.equal(requestedUrls[0].searchParams.get("track_name"), "Get Lucky");
+        const payload = JSON.parse(response.body);
+        assert.equal(payload.provider, "lrclib");
+        assert.equal(payload.synced, true);
+        assert.match(payload.syncedLyrics, /^\[00:12\.50\]/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("synced lyrics route falls back to plain Lyrics.ovh when LrcLib misses", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls = [];
+    globalThis.fetch = async (input) => {
+        const url = new URL(input);
+        requestedUrls.push(url.origin);
+        if (url.hostname === "lrclib.net") {
+            return { ok: false, status: 404, async json() { return {}; } };
+        }
+        return {
+            ok: true,
+            async json() {
+                return { lyrics: "Letra simples sem tempos" };
+            }
+        };
+    };
+
+    try {
+        const response = await request("/api/lyrics?artist=Desconhecido&title=Inexistente&format=synced");
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(requestedUrls, ["https://lrclib.net", "https://api.lyrics.ovh"]);
+        const payload = JSON.parse(response.body);
+        assert.equal(payload.provider, "lyrics.ovh");
+        assert.equal(payload.synced, false);
+        assert.equal(payload.syncedLyrics, "");
+        assert.equal(payload.lyrics, "Letra simples sem tempos");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("synced lyrics route still validates artist and title", async () => {
+    const response = await request("/api/lyrics?format=synced");
+    assert.equal(response.statusCode, 400);
+});

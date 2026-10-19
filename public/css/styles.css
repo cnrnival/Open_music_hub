@@ -269,6 +269,54 @@ input:focus-visible {
 	font-size: 20px;
 }
 
+.hamburger-button {
+	display: none;
+	background: transparent;
+	border: 0;
+	padding: 8px;
+	cursor: pointer;
+	color: #bdbdbd;
+	font-size: 20px;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	transition: background-color 120ms ease;
+}
+
+.hamburger-button:hover {
+	background: #333;
+}
+
+.hamburger-button.active {
+	background: #111;
+}
+
+@media (max-width: 768px) {
+	.hamburger-button {
+		display: flex;
+	}
+	.library-panel.collapsed {
+		transform: translateX(-100%);
+	}
+	.library-panel.collapsed ~ .main-view {
+		margin-left: 0;
+	}
+}
+
+@media (max-width: 768px) {
+	.library-item.pinned .library-item__pin {
+		opacity: 1;
+		transform: scale(1);
+	}
+	.library-item:not(.pinned) .library-item__pin {
+		opacity: 0;
+		transform: scale(0);
+	}
+}
+
 .library-panel__actions {
 	gap: 4px;
 }
@@ -1318,7 +1366,39 @@ input:focus-visible {
 
 .artist-grid {
 	display: grid;
-	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 12px;
+}
+
+@media (max-width: 1024px) {
+	.artist-grid {
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-auto-rows: 250px;
+	}
+}
+
+@media (max-width: 640px) {
+	.artist-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		grid-auto-rows: 200px;
+	}
+}
+
+@media (max-width: 1024px) {
+	.release-grid {
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-auto-rows: 250px;
+	}
+}
+
+@media (max-width: 480px) {
+	.release-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		grid-auto-rows: 200px;
+	}
+}
+
+.release-grid {
+	display: grid;
 	gap: 12px;
 }
 
@@ -1394,16 +1474,55 @@ input:focus-visible {
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}.release-grid {
+	 display: grid;
+	 grid-template-columns: repeat(4, minmax(0, 1fr));
+	 gap: 12px;
 }
 
-.release-grid {
-	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 12px;
+@media (max-width: 1024px) {
+	.release-grid {
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-auto-rows: 250px;
+	}
+}
+
+@media (max-width: 640px) {
+	.release-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		grid-auto-rows: 200px;
+	}
+}
+
+.trends-grid {
+	 display: grid;
+	 gap: 12px;
+}
+
+@media (max-width: 1024px) {
+	.trends-grid {
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-auto-rows: 200px;
+	}
+}
+
+@media (max-width: 640px) {
+	.trends-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		grid-auto-rows: 150px;
+	}
+}
+
+.trends-grid .quick-pick {
+	 min-height: 140px;
+	 flex-direction: column;
+	 align-items: center;
+	 justify-content: space-between;
 }
 
 .release-card {
-	padding: 10px;
+	 padding: 10px;
+
 }
 
 .release-card__art {
@@ -1723,16 +1842,46 @@ input:focus-visible {
 }
 
 .music-player__play {
-	width: 34px;
-	height: 34px;
+	width: 44px;
+	height: 44px;
 	border-radius: 50%;
 	background: #fff !important;
 	color: #000 !important;
 	transition: transform 120ms ease;
+	flex-shrink: 0;
 }
 
-.music-player__play:hover {
-	transform: scale(1.07);
+.music-player__play:hover:not(:disabled) {
+	transform: scale(1.12);
+}
+
+.music-player__play:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+	transform: none;
+}
+
+@media (pointer: coarse) {
+	.music-player__play {
+		width: 48px;
+		height: 48px;
+	}
+	.music-player__progress {
+		height: 8px;
+	}
+	.music-player__volume-control {
+		height: 8px;
+	}
+	.music-player__timeline {
+		gap: 12px;
+	}
+	.music-player__time {
+		font-size: 14px;
+	}
+}
+
+.music-player__play-icon {
+	font-size: 24px;
 }
 
 .music-player__play:disabled {
@@ -2284,5 +2433,216 @@ input:focus-visible {
 
 	.artist-card {
 		padding: 5px;
+	}
+}
+
+/* ==========================================================================
+   Biblioteca persistida, download offline e player responsivo (mobile-first)
+   Persisted library, offline download, and responsive player (mobile-first)
+   ========================================================================== */
+
+.library-item {
+	position: relative;
+	padding-right: 4px;
+}
+
+.library-item__open {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 11px;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+
+.library-item__open > span {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.library-item__pin-button {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 34px;
+	height: 34px;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: #b3b3b3;
+	font-size: 17px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.library-item__pin-button:hover {
+	background: #2a2a2a;
+	color: #fff;
+}
+
+.library-item.pinned .library-item__pin-button {
+	color: #1ed760;
+}
+
+.library-empty {
+	margin: 4px 0;
+	padding: 12px 6px;
+	color: var(--text-secondary, #b3b3b3);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.trends-status {
+	color: var(--text-secondary, #b3b3b3);
+	font-size: 12px;
+}
+
+.trends-grid {
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.detail-download[data-downloaded="true"],
+.music-player__extras button[data-downloaded="true"] {
+	color: #1ed760;
+}
+
+/* O botão de expandir só aparece no celular; no desktop o player é fixo no rodapé. */
+/* The expand button only shows on phones; on desktop the player stays fixed at the bottom. */
+.music-player__expand {
+	display: none;
+}
+
+body.player-expanded {
+	overflow: hidden;
+}
+
+@media (max-width: 760px) {
+	/* A biblioteca vira uma gaveta deslizante a partir da esquerda. */
+	/* The library becomes a slide-in drawer from the left. */
+	.library-panel {
+		display: flex;
+		position: fixed;
+		top: 58px;
+		bottom: 76px;
+		left: 0;
+		z-index: 70;
+		width: min(86vw, 330px);
+		padding: 14px 12px 18px;
+		border-right: 1px solid #1f1f1f;
+		background: #121212;
+		overflow-y: auto;
+		transform: translateX(-104%);
+		transition: transform 220ms ease;
+		box-shadow: 20px 0 45px #000a;
+	}
+
+	.library-panel.is-open {
+		transform: translateX(0);
+	}
+
+	body.library-drawer-open::before {
+		content: "";
+		position: fixed;
+		inset: 58px 0 76px;
+		z-index: 60;
+		background: #000000b3;
+	}
+
+	.music-player__expand {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		border: 0;
+		border-radius: 50%;
+		background: transparent;
+		color: #cfcfcf;
+		font-size: 22px;
+		cursor: pointer;
+	}
+
+	/* Player em tela cheia com capa grande, letras e download visíveis. */
+	/* Full-screen player with large artwork, lyrics, and download controls visible. */
+	.music-player.is-expanded {
+		position: fixed;
+		inset: 0;
+		z-index: 90;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		min-height: 100dvh;
+		padding: 22px 18px 26px;
+		overflow-y: auto;
+		background: linear-gradient(180deg, #202020 0%, #0b0b0b 100%);
+	}
+
+	.music-player.is-expanded .music-player__expand {
+		position: absolute;
+		top: 14px;
+		right: 14px;
+		z-index: 2;
+	}
+
+	.music-player.is-expanded .Play-music {
+		flex-direction: column;
+		align-items: center;
+		gap: 14px;
+		text-align: center;
+	}
+
+	.music-player.is-expanded .Pplay-music__cover {
+		flex-basis: auto;
+		width: min(70vw, 300px);
+		height: min(70vw, 300px);
+		font-size: 76px;
+	}
+
+	.music-player.is-expanded .Pplay-music__info {
+		align-items: center;
+		text-align: center;
+	}
+
+	.music-player.is-expanded .Pplay-music__title {
+		font-size: 22px;
+	}
+
+	.music-player.is-expanded .music-player__center {
+		width: 100%;
+		margin-top: auto;
+	}
+
+	.music-player.is-expanded .music-player__play {
+		width: 64px;
+		height: 64px;
+	}
+
+	.music-player.is-expanded .music-player__controls {
+		gap: 20px;
+	}
+
+	.music-player.is-expanded .music-player__timeline,
+	.music-player.is-expanded .music-player__secondary,
+	.music-player.is-expanded .music-player__add,
+	.music-player.is-expanded .music-player__extras {
+		display: flex !important;
+	}
+
+	.music-player.is-expanded .music-player__timeline {
+		flex-direction: row;
+	}
+
+	.music-player.is-expanded .music-player__extras {
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 12px;
+		margin-top: 12px;
 	}
 }

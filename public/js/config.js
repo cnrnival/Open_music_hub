@@ -205,6 +205,20 @@ const API_CONFIG = Object.freeze({
             searchPath(artist, title) {
                 return `${this.proxyPath}?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`;
             },
+            // Letra sincronizada (LRC) pelo LrcLib, com fallback para o Lyrics.ovh.
+            // Time-synced lyrics (LRC) through LrcLib, falling back to Lyrics.ovh.
+            syncedPath(artist, title) {
+                return `${this.proxyPath}?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}&format=synced`;
+            },
+            // LrcLib é consultado somente pelo proxy da mesma origem.
+            // LrcLib is only queried through the same-origin proxy.
+            lrclib: Object.freeze({
+                baseUrl: "https://lrclib.net/api/get",
+                userAgent: "OpenMusicHub/1.0",
+                lookupPath(artist, title) {
+                    return `?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
+                }
+            }),
             genius: Object.freeze({
                 baseUrl: "https://api.genius.com/",
                 search(query) {
@@ -257,6 +271,16 @@ const API_CONFIG = Object.freeze({
             },
             detailPath(videoId) {
                 return `${this.proxyBasePath}?action=video&id=${encodeURIComponent(videoId)}`;
+            },
+            proxyPath(action, params = {}) {
+                const query = new URLSearchParams({ action, ...params });
+                return `${this.proxyBasePath}?${query}`;
+            },
+            audioPath(videoId) {
+                return this.proxyPath("audio", { id: videoId });
+            },
+            streamPath(videoId) {
+                return this.proxyPath("stream", { id: videoId });
             }
         }),
         spotify: Object.freeze({
