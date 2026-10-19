@@ -98,7 +98,7 @@ npm test
 
 ## Provedores e configuração
 
-As URLs base, endpoints, rotas locais e parâmetros públicos ficam centralizados em [`public/js/config.js`](./public/js/config.js). Não adicione credenciais privadas nesse arquivo. `server.js` compartilha o handler HTTP entre execução local e a função serverless `api/[...path].js` da Vercel.
+As URLs base, endpoints, rotas locais e parâmetros públicos ficam centralizados em [`public/js/config.js`](./public/js/config.js). Não adicione credenciais privadas nesse arquivo. `server.js` compartilha o handler HTTP entre execução local e a função serverless `api/[...path].js` da Vercel. Para manter compatibilidade com o roteamento de funções da Vercel, as APIs usam uma rota por provedor (por exemplo, `/api/deezer`) e diferenciam operações por parâmetros de consulta.
 
 ### Deezer
 

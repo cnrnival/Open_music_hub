@@ -42,13 +42,13 @@ const API_CONFIG = Object.freeze({
                 }
             }),
             searchPath(query) {
-                return `${this.searchRoute}?q=${encodeURIComponent(query)}`;
+                return `${this.proxyBasePath}?action=search&q=${encodeURIComponent(query)}`;
             },
             detailPath(kind, id) {
-                return `${this.detailRoutePrefix}${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+                return `${this.proxyBasePath}?action=detail&resource=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`;
             },
             artistAlbumsPath(id) {
-                return `${this.detailRoutePrefix}artist/${encodeURIComponent(id)}/albums`;
+                return `${this.proxyBasePath}?action=artist-albums&id=${encodeURIComponent(id)}`;
             }
         }),
         // V2 credentials are configured only on the server and never exposed in this public file.
@@ -68,17 +68,17 @@ const API_CONFIG = Object.freeze({
                 return `${this.proxyBasePath}/discography`;
             },
             artistSearchPath(name) {
-                return `${this.searchRoute}/artist?q=${encodeURIComponent(name)}`;
+                return `${this.proxyBasePath}?action=search&kind=artist&q=${encodeURIComponent(name)}`;
             },
             searchPath(kind, query) {
-                return `${this.searchRoute}/${encodeURIComponent(kind)}?q=${encodeURIComponent(query)}`;
+                return `${this.proxyBasePath}?action=search&kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}`;
             },
             lookupPath(kind, id, musicBrainz = false) {
                 const lookupKind = musicBrainz ? `${kind}_mb` : kind;
-                return `${this.lookupRoute}/${encodeURIComponent(lookupKind)}?id=${encodeURIComponent(id)}`;
+                return `${this.proxyBasePath}?action=lookup&kind=${encodeURIComponent(lookupKind)}&id=${encodeURIComponent(id)}`;
             },
             discographyPath(artistId) {
-                return `${this.discographyRoute}?id=${encodeURIComponent(artistId)}`;
+                return `${this.proxyBasePath}?action=discography&id=${encodeURIComponent(artistId)}`;
             },
             endpoints: Object.freeze({
                 search: Object.freeze({
@@ -141,7 +141,7 @@ const API_CONFIG = Object.freeze({
                 return `${this.proxyBasePath}/artist`;
             },
             artistSearchPath(name) {
-                return `${this.artistSearchRoute}?q=${encodeURIComponent(name)}`;
+                return `${this.proxyBasePath}?q=${encodeURIComponent(name)}`;
             },
             endpoints: Object.freeze({
                 searchArtist(name) {
@@ -180,7 +180,7 @@ const API_CONFIG = Object.freeze({
                 return `${this.proxyBasePath}/search`;
             },
             searchPath(query) {
-                return `${this.searchRoute}?q=${encodeURIComponent(query)}`;
+                return `${this.proxyBasePath}?q=${encodeURIComponent(query)}`;
             },
             endpoints: Object.freeze({
                 search(query) {
@@ -206,10 +206,10 @@ const API_CONFIG = Object.freeze({
                 }
             }),
             searchPath(query) {
-                return `${this.searchRoute}?q=${encodeURIComponent(query)}`;
+                return `${this.proxyBasePath}?action=search&q=${encodeURIComponent(query)}`;
             },
             detailPath(videoId) {
-                return `${this.detailRoutePrefix}${encodeURIComponent(videoId)}`;
+                return `${this.proxyBasePath}?action=video&id=${encodeURIComponent(videoId)}`;
             }
         }),
         spotify: Object.freeze({

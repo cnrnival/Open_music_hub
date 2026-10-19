@@ -576,6 +576,31 @@ async function handleRequest(request, response) {
             });
             return;
         }
+        if (url.pathname === API_CONFIG.providers.audioDb.proxyBasePath) {
+            const action = url.searchParams.get("action");
+            const kind = url.searchParams.get("kind") || "";
+            if (action === "search" && ["artist", "album", "track"].includes(kind)) {
+                await handleAudioDbSearch(url, response, kind);
+                return;
+            }
+            if (
+                action === "lookup"
+                && ["artist", "artist_mb", "album", "album_mb", "track", "track_mb"].includes(kind)
+            ) {
+                await handleAudioDbLookup(url, response, kind);
+                return;
+            }
+            if (action === "discography") {
+                await handleAudioDbDiscography(url, response);
+                return;
+            }
+            sendJson(response, 400, { error: "Unsupported TheAudioDB action or resource." });
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.musicBrainz.proxyBasePath) {
+            await handleMusicBrainzArtist(url, response);
+            return;
+        }
         const audioDbSearch = url.pathname.match(
             new RegExp(`^${API_CONFIG.providers.audioDb.searchRoute}/(artist|album|track)$`)
         );
@@ -602,8 +627,33 @@ async function handleRequest(request, response) {
             await handleLyrics(url, response);
             return;
         }
+        if (url.pathname === API_CONFIG.providers.jamendo.proxyBasePath) {
+            await handleJamendoSearch(url, response);
+            return;
+        }
         if (url.pathname === API_CONFIG.providers.jamendo.searchRoute) {
             await handleJamendoSearch(url, response);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.deezer.proxyBasePath) {
+            const action = url.searchParams.get("action");
+            if (action === "search") {
+                await handleDeezerSearch(url, response);
+                return;
+            }
+            const id = url.searchParams.get("id") || "";
+            if (action === "detail") {
+                const resource = url.searchParams.get("resource") || "";
+                url.pathname = `${API_CONFIG.providers.deezer.detailRoutePrefix}${encodeURIComponent(resource)}/${encodeURIComponent(id)}`;
+                await handleDeezerDetail(url, response);
+                return;
+            }
+            if (action === "artist-albums") {
+                url.pathname = `${API_CONFIG.providers.deezer.detailRoutePrefix}artist/${encodeURIComponent(id)}/albums`;
+                await handleDeezerDetail(url, response);
+                return;
+            }
+            sendJson(response, 400, { error: "Unsupported Deezer action." });
             return;
         }
         if (url.pathname === API_CONFIG.providers.deezer.searchRoute) {
@@ -612,6 +662,21 @@ async function handleRequest(request, response) {
         }
         if (url.pathname.startsWith(API_CONFIG.providers.deezer.detailRoutePrefix)) {
             await handleDeezerDetail(url, response);
+            return;
+        }
+        if (url.pathname === API_CONFIG.providers.invidious.proxyBasePath) {
+            const action = url.searchParams.get("action");
+            if (action === "search") {
+                await handleInvidiousSearch(url, response);
+                return;
+            }
+            if (action === "video") {
+                const videoId = url.searchParams.get("id") || "";
+                url.pathname = `${API_CONFIG.providers.invidious.detailRoutePrefix}${encodeURIComponent(videoId)}`;
+                await handleInvidiousDetail(url, response);
+                return;
+            }
+            sendJson(response, 400, { error: "Unsupported Invidious action." });
             return;
         }
         if (url.pathname === API_CONFIG.providers.invidious.searchRoute) {
