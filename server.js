@@ -643,9 +643,18 @@ async function handleInvidiousSearch(url, response) {
     sendJson(response, 200, { provider: "invidious", results: videos });
 }
 
-// Escolhe o melhor fluxo somente de áudio (m4a/webm) em adaptiveFormats, ignorando vídeo muxado.
-// Pick the best audio-only stream (m4a/webm) from adaptiveFormats, ignoring muxed video tracks.
-function selectInvidiousAudioFormat(video) {
+// Normaliza a qualidade pedida pelo player; desconhecida cai na maior disponível.
+// Normalize the quality requested by the player; unknown values fall back to the best one.
+function normalizeStreamQuality(value) {
+    const quality = String(value || "").toLowerCase();
+    return ["low", "normal", "high"].includes(quality) ? quality : "high";
+}
+
+// Escolhe um fluxo somente de áudio (m4a/webm) em adaptiveFormats, ignorando vídeo muxado.
+// Pick an audio-only stream (m4a/webm) from adaptiveFormats, ignoring muxed video tracks.
+// - low: menor bitrate • normal: mais próximo de 128 kbps • high: maior bitrate.
+// - low: lowest bitrate • normal: closest to 128 kbps • high: highest bitrate.
+function selectInvidiousAudioFormat(video, quality = "high") {
     const formats = Array.isArray(video?.adaptiveFormats) ? video.adaptiveFormats : [];
     const audioFormats = formats.filter((format) => {
         if (!format || !format.url) {
@@ -661,8 +670,21 @@ function selectInvidiousAudioFormat(video) {
             || container === "webm"
             || container === "mp4";
     });
-    audioFormats.sort((left, right) => (Number(right.bitrate) || 0) - (Number(left.bitrate) || 0));
-    const selected = audioFormats[0];
+    const tier = normalizeStreamQuality(quality);
+    audioFormats.sort((left, right) => (Number(left.bitrate) || 0) - (Number(right.bitrate) || 0));
+    let selected;
+    if (tier === "low") {
+        selected = audioFormats[0];
+    } else if (tier === "normal") {
+        selected = audioFormats.reduce((closest, format) => (
+            Math.abs((Number(format.bitrate) || 0) - 128000)
+                < Math.abs((Number(closest.bitrate) || 0) - 128000)
+                ? format
+                : closest
+        ), audioFormats[0]);
+    } else {
+        selected = audioFormats[audioFormats.length - 1];
+    }
     if (!selected) {
         return null;
     }
@@ -679,8 +701,12 @@ function selectInvidiousAudioFormat(video) {
 // Resolve (and memoize) a video's audio stream from Invidious.
 // Com allowMissing, a falta de áudio devolve apenas os metadados em vez de falhar a página inteira.
 // With allowMissing, a missing audio stream returns metadata instead of failing the whole page.
-async function resolveInvidiousAudio(videoId, { allowMissing = false, force = false } = {}) {
-    const cached = invidiousAudioCache.get(videoId);
+async function resolveInvidiousAudio(videoId, { allowMissing = false, force = false, quality = "high" } = {}) {
+    const tier = normalizeStreamQuality(quality);
+    // O cache separa as qualidades: o mesmo vídeo pode ter mais de um fluxo escolhido.
+    // The cache is keyed by quality: the same video can map to more than one chosen stream.
+    const cacheKey = `${videoId}|${tier}`;
+    const cached = invidiousAudioCache.get(cacheKey);
     if (!force && cached && Date.now() - cached.resolvedAt < INVIDIOUS_AUDIO_CACHE_TTL_MS) {
         return cached;
     }
@@ -692,12 +718,12 @@ async function resolveInvidiousAudio(videoId, { allowMissing = false, force = fa
         // If the instance fails after every attempt, reuse the last known good result.
         if (cached?.audio) {
             console.warn(`Serving stale Invidious metadata for ${videoId}.`, error.message);
-            invidiousAudioCache.set(videoId, { ...cached, resolvedAt: Date.now() });
+            invidiousAudioCache.set(cacheKey, { ...cached, resolvedAt: Date.now() });
             return cached;
         }
         throw error;
     }
-    const audio = selectInvidiousAudioFormat(video);
+    const audio = selectInvidiousAudioFormat(video, tier);
     if (!audio) {
         if (allowMissing) {
             return { item: normalizeInvidiousMetadata(video), audio: null, resolvedAt: Date.now() };
@@ -719,12 +745,13 @@ async function resolveInvidiousAudio(videoId, { allowMissing = false, force = fa
         audio: { ...audio, url: absoluteUrl.href },
         resolvedAt: Date.now()
     };
-    invidiousAudioCache.set(videoId, resolved);
+    invidiousAudioCache.set(cacheKey, resolved);
     return resolved;
 }
 
-function invidiousStreamPath(videoId) {
-    return `${API_CONFIG.providers.invidious.proxyBasePath}?action=stream&id=${encodeURIComponent(videoId)}`;
+function invidiousStreamPath(videoId, quality = "high") {
+    const tier = normalizeStreamQuality(quality);
+    return `${API_CONFIG.providers.invidious.proxyBasePath}?action=stream&id=${encodeURIComponent(videoId)}&quality=${tier}`;
 }
 
 // Devolve metadados e a URL de áudio de mesma origem usada pelo player e pelo download offline.
@@ -735,8 +762,9 @@ async function handleInvidiousDetail(url, response) {
         sendJson(response, 400, { error: "Invalid Invidious video ID." });
         return;
     }
-    const resolved = await resolveInvidiousAudio(videoId, { allowMissing: true });
-    const streamPath = resolved.audio ? invidiousStreamPath(videoId) : "";
+    const quality = normalizeStreamQuality(url.searchParams.get("quality"));
+    const resolved = await resolveInvidiousAudio(videoId, { allowMissing: true, quality });
+    const streamPath = resolved.audio ? invidiousStreamPath(videoId, quality) : "";
     sendJson(response, 200, {
         provider: "invidious",
         item: {
@@ -769,15 +797,16 @@ async function handleInvidiousAudio(url, response) {
         sendJson(response, 400, { error: "Invalid Invidious video ID." });
         return;
     }
-    const resolved = await resolveInvidiousAudio(videoId);
+    const quality = normalizeStreamQuality(url.searchParams.get("quality"));
+    const resolved = await resolveInvidiousAudio(videoId, { quality });
     sendJson(response, 200, {
         provider: "invidious",
         videoId,
         item: resolved.item,
-        audioUrl: invidiousStreamPath(videoId),
+        audioUrl: invidiousStreamPath(videoId, quality),
         directAudioUrl: resolved.audio.url,
         audio: {
-            url: invidiousStreamPath(videoId),
+            url: invidiousStreamPath(videoId, quality),
             directUrl: resolved.audio.url,
             mimeType: resolved.audio.mimeType,
             container: resolved.audio.container,
@@ -802,13 +831,14 @@ async function handleInvidiousStream(request, response, url) {
         headers,
         signal: AbortSignal.timeout(INVIDIOUS_MEDIA_TIMEOUT_MS)
     });
-    let resolved = await resolveInvidiousAudio(videoId);
+    const quality = normalizeStreamQuality(url.searchParams.get("quality"));
+    let resolved = await resolveInvidiousAudio(videoId, { quality });
     let upstream = await fetchMedia(resolved.audio.url);
     // URLs do YouTube expiram ou são recusadas; uma segunda resolução costuma gerar uma URL válida.
     // YouTube URLs expire or get rejected; resolving again usually yields a valid URL.
     if ([403, 404, 410].includes(upstream.status)) {
         console.warn(`Invidious media refused with HTTP ${upstream.status}; resolving again.`);
-        resolved = await resolveInvidiousAudio(videoId, { force: true });
+        resolved = await resolveInvidiousAudio(videoId, { force: true, quality });
         upstream = await fetchMedia(resolved.audio.url);
     }
     if (!upstream.ok && upstream.status !== 206) {
@@ -917,7 +947,6 @@ async function handleRequest(request, response) {
     try {
         if (url.pathname === API_CONFIG.serverRoutes.configuration) {
             sendJson(response, 200, {
-                spotifyClientId: environment.SPOTIFY_CLIENT_ID || "",
                 jamendoEnabled: Boolean(environment.JAMENDO_CLIENT_ID),
                 audioDbEnabled: true,
                 lyricsProviders: {

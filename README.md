@@ -5,12 +5,12 @@ Projeto open source para reunir busca, descoberta e reprodução de músicas em 
 ## Recursos
 
 - Busca agregada no Deezer e no Invidious, com debounce de 300 ms; Jamendo pode ser ativado como fonte opcional de faixas completas licenciadas.
-- Spotify Web API opcional para metadados, mediante autenticação OAuth com PKCE.
 - Biografia e imagens de artistas do TheAudioDB, discografia do MusicBrainz e letras via Lyrics.ovh.
 - Páginas de artistas, faixas, álbuns e playlists.
 - Aba **Novidades** para consultar lançamentos de artistas salvos.
 - Player com reprodução de faixas completas a partir de vários arquivos de áudio locais selecionados pelo usuário; prévias do Deezer continuam disponíveis quando fornecidas. A seleção aceita apenas formatos de áudio.
 - Integração opcional com Jamendo para faixas completas que tenham download permitido e licença compatível.
+- Configurações locais de armazenamento, biblioteca, densidade, reprodução (autoplay, sem pausas e qualidade) e perfil, sem login.
 - Controles de fila, volume, busca por posição e salvamentos locais.
 - Configuração dos provedores centralizada em `public/js/config.js`.
 
@@ -73,13 +73,12 @@ Requisitos: Node.js 18 ou mais recente.
 3. Opcionalmente, copie `.env.example` para `.env` e configure os provedores necessários:
 
    ```env
-   SPOTIFY_CLIENT_ID=
    JAMENDO_CLIENT_ID=
    GENIUS_ACCESS_TOKEN=
    MUSIXMATCH_API_KEY=
    ```
 
-   `SPOTIFY_CLIENT_ID` é público. `JAMENDO_CLIENT_ID` habilita a busca Jamendo. A TheAudioDB usa a chave pública de teste `123`, centralizada em `public/js/config.js`, sem configuração no `.env`; essa chave tem limites e não deve ser tratada como credencial privada nem como garantia de disponibilidade. Genius e Musixmatch estão reservados para integração futura. Nunca coloque tokens ou segredos privados no `config.js`, no navegador ou no Git.
+   `JAMENDO_CLIENT_ID` habilita a busca Jamendo. A TheAudioDB usa a chave pública de teste `123`, centralizada em `public/js/config.js`, sem configuração no `.env`; essa chave tem limites e não deve ser tratada como credencial privada nem como garantia de disponibilidade. Genius e Musixmatch estão reservados para integração futura. Nunca coloque tokens ou segredos privados no `config.js`, no navegador ou no Git.
 4. Inicie o servidor:
 
    ```sh
@@ -139,19 +138,9 @@ Confira e respeite os termos de cada API e a licença indicada para cada faixa. 
 - Esta versão não chama essas APIs. Cadastro de uma aplicação ou obtenção de `API Key`, `API Secret` ou `client_id` não está implementado e não habilita reprodução no app.
 - Antes de integrar, confirme que o acesso para novos aplicativos, endpoints e direitos de reprodução continuam disponíveis nos termos oficiais. Credenciais privadas, se vierem a ser necessárias, devem ser lidas pelo servidor a partir de `.env`, nunca adicionadas ao `config.js` público.
 
-### Spotify (opcional)
-
-O Spotify Web API é usado apenas para metadados e capas. Para habilitar:
-
-1. Crie um app no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Cadastre `http://127.0.0.1:8765/` como Redirect URI.
-3. Informe o Client ID público na configuração da aplicação ou em `SPOTIFY_CLIENT_ID` no `.env`.
-
-A autenticação usa Authorization Code com PKCE; não use client secret no navegador. O Spotify Web API não fornece reprodução completa de músicas.
-
 ## Reprodução e uso autorizado
 
-O player reproduz faixas completas a partir de arquivos de áudio escolhidos pelo usuário (é possível selecionar vários para criar uma fila local) e, quando configurado, faixas Jamendo com download permitido e licença identificável. Ao selecionar uma faixa Deezer ou Spotify, o app tenta primeiro encontrar uma correspondência exata de título e artista no Jamendo; se não encontrar, usa a prévia oficial disponível. Se essa prévia falhar, tenta novamente uma faixa completa licenciada. Resultados do Invidious e metadados do Spotify podem abrir suas páginas oficiais, mas não são convertidos em áudio pelo projeto. O projeto não extrai streams completos do Invidious/YouTube.
+O player reproduz faixas completas a partir de arquivos de áudio escolhidos pelo usuário (é possível selecionar vários para criar uma fila local), do áudio completo resolvido pelo Invidious e, quando configurado, de faixas Jamendo com download permitido e licença identificável. Ao selecionar uma faixa Deezer, o app tenta primeiro uma correspondência exata de título e artista no Jamendo e, depois, o áudio completo no Invidious; as prévias de 30 segundos das lojas não são usadas. A qualidade do stream (Baixa, Normal ou Alta) é escolhida nas configurações.
 
 ## Deploy na Vercel
 
@@ -159,7 +148,6 @@ O player reproduz faixas completas a partir de arquivos de áudio escolhidos pel
 2. Mantenha o diretório raiz do projeto e o preset **Other**. O `vercel.json` executa `npm install` e `npm run build`, publica `public/` e aplica cabeçalhos HTTP básicos de segurança; a Vercel detecta a função em `api/[...path].js`.
 3. Configure no projeto Vercel somente as variáveis dos provedores que pretende habilitar, em **Settings > Environment Variables**, e faça um novo deploy:
    - `JAMENDO_CLIENT_ID` (opcional, gratuito conforme cadastro/termos do provedor) habilita faixas Jamendo elegíveis.
-   - `SPOTIFY_CLIENT_ID` (opcional) habilita metadados Spotify; configure também a URL pública do site como Redirect URI no Spotify Developer Dashboard.
    - TheAudioDB usa a chave pública de teste `123` para v1, sem variável de ambiente. Esse acesso pode ser limitado ou descontinuado pelo provedor.
 4. Não envie um arquivo `.env` para o repositório ou para os arquivos estáticos; cadastre as variáveis no painel. `.vercel/` e arquivos `.env` estão ignorados pelo Git.
 
@@ -176,7 +164,7 @@ O deploy da interface e das rotas serverless não transforma arquivos selecionad
 ### Privacidade e LGPD
 
 - Consulte [`public/privacy.html`](./public/privacy.html) para o aviso de privacidade apresentado pela aplicação.
-- O app mantém biblioteca, estatísticas e Client ID público no armazenamento local do navegador; o fluxo Spotify usa estado PKCE temporário de sessão. Arquivos escolhidos no player não são enviados pelo app.
+- O app mantém biblioteca, estatísticas, preferências e o nome do perfil local no armazenamento local do navegador. Arquivos escolhidos no player não são enviados pelo app.
 - Termos de busca são encaminhados a provedores externos; a Vercel e os provedores podem processar logs técnicos, como IP e dados de requisição, conforme seus próprios termos.
 - **Antes do deploy público**, substitua o campo de contato pendente no aviso por um canal privado válido do responsável e confirme com os provedores ativos as finalidades, bases legais, transferências internacionais e prazos de retenção aplicáveis. O aviso é informativo e não substitui validação jurídica.
 

@@ -36,10 +36,14 @@
 		<nav class="topbar__actions" aria-label="Conta e notificações">
 			<button class="icon-button topbar__explore" type="button" data-action="explore">Explorar música</button>
 			<button class="icon-button topbar__install" type="button" data-action="install"><span class="mdi mdi-download-circle-outline" aria-hidden="true"></span> Instalar aplicativo</button>
-			<button class="icon-button api-settings-button" type="button" aria-label="Configurar APIs" data-action="api-settings"><span class="mdi mdi-cog-outline" aria-hidden="true"></span></button>
+			<!-- As configurações são do navegador, não de uma conta: nada de chaves ou logins externos.
+			     Settings belong to the browser, not an account: no keys or external sign-ins. -->
+			<button class="icon-button settings-button" type="button" aria-label="Configurações" title="Configurações" data-action="settings"><span class="mdi mdi-cog-outline" aria-hidden="true"></span></button>
 			<button class="icon-button" type="button" aria-label="Novidades e lançamentos" data-action="notifications"><span class="mdi mdi-bell-outline" aria-hidden="true"></span></button>
 			<button class="icon-button topbar__friends" type="button" aria-label="Atividade dos amigos" data-action="friends"><span class="mdi mdi-account-group-outline" aria-hidden="true"></span></button>
-			<button class="profile-button" type="button" aria-label="Perfil" data-action="profile">G</button>
+			<!-- O perfil é 100% local: nome e avatar ficam neste navegador, sem login.
+			     The profile is fully local: name and avatar stay in this browser, no sign-in. -->
+			<button class="profile-button" type="button" aria-label="Abrir perfil local" title="Perfil local" data-action="profile"><span class="profile-button__content" id="profileButtonContent">G</span></button>
 		</nav>
 	</header>
 
@@ -71,44 +75,9 @@
 				<button class="icon-button library-search" type="button" aria-label="Buscar na biblioteca"><span class="mdi mdi-magnify" aria-hidden="true"></span></button>
 				<button class="sort-button" type="button" aria-label="Ordenar biblioteca: recentes">Recentes <span class="mdi mdi-format-list-bulleted" aria-hidden="true"></span></button>
 			</div>
-			<div class="library-list">
-				<button class="library-item" data-searchable data-category="playlist" type="button">
-					<span class="library-item__art mdi mdi-music" aria-hidden="true"></span>
-					<span><strong>Suas músicas</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Playlist • 128 músicas</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="artist" type="button">
-					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
-					<span><strong>Lil Peep</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="artist" type="button">
-					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
-					<span><strong>Lana Del Rey</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="artist" type="button">
-					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
-					<span><strong>Cigarettes After Sex</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="artist" type="button">
-					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
-					<span><strong>zTokyo</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="artist" type="button">
-					<span class="library-item__art library-item__art--artist mdi mdi-account-music" aria-hidden="true"></span>
-					<span><strong>lilgiela33</strong><small><span class="mdi mdi-pin" aria-hidden="true"></span> Artista</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="playlist" type="button">
-					<span class="library-item__art mdi mdi-playlist-music" aria-hidden="true"></span>
-					<span><strong>Lil Peep - The Complete Collection</strong><small>Playlist • 86 músicas</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="album" type="button">
-					<span class="library-item__art mdi mdi-album" aria-hidden="true"></span>
-					<span><strong>Come Over When You're Sober, Pt. 1</strong><small>Álbum • Lil Peep</small></span>
-				</button>
-				<button class="library-item" data-searchable data-category="podcast" type="button">
-					<span class="library-item__art mdi mdi-podcast" aria-hidden="true"></span>
-					<span><strong>Podcast para ouvir</strong><small>Podcast • Episódios novos</small></span>
-				</button>
-			</div>
+			<!-- A lista começa vazia de propósito: só o que o utilizador salvar aparece aqui.
+			     The list starts empty on purpose: only items saved by the user appear here. -->
+			<div class="library-list"></div>
 		</aside>
 
 		<main class="main-view panel">
@@ -311,23 +280,126 @@
 			<div class="app-dialog__actions"><button class="primary-button app-dialog__confirm" value="confirm">Entendi</button></div>
 		</form>
 	</dialog>
-	<!-- O Client ID do Spotify é público; não inclua client secrets nem chaves privadas no navegador.
-	     The Spotify Client ID is public; do not put client secrets or private keys in the browser. -->
-	<dialog class="api-settings-dialog" aria-labelledby="api-settings-title">
-		<form class="api-settings-form" method="dialog">
-			<button class="api-settings-close icon-button" value="cancel" aria-label="Fechar"><span class="mdi mdi-close" aria-hidden="true"></span></button>
-			<h2 id="api-settings-title">Configuração das APIs</h2>
-			<p>Deezer, Invidious, TheAudioDB, MusicBrainz e Lyrics.ovh usam endpoints públicos. O Jamendo pode fornecer faixas completas quando configurado no servidor e autorizado pela licença. Para incluir resultados Spotify, informe o Client ID público.</p>
-			<p>Buscas são encaminhadas aos provedores selecionados. Estatísticas e preferências ficam neste navegador. <a href="privacy.html" target="_blank" rel="noopener noreferrer">Leia o aviso de privacidade e seus direitos LGPD</a>.</p>
-			<label for="spotify-client-id">Spotify Client ID</label>
-			<input id="spotify-client-id" name="spotifyClientId" autocomplete="off" spellcheck="false" placeholder="Cole aqui o Client ID público">
-			<p class="api-settings-hint">Credenciais privadas devem ficar no arquivo .env local, ignorado pelo Git; não as cole nesta janela. Consulte o README para configurar o Jamendo.</p>
-			<div class="api-settings-actions">
-				<button class="api-settings-connect" type="button">Conectar Spotify</button>
-				<button class="api-settings-save" type="submit">Salvar configuração</button>
+	<!-- Configurações de uma aplicação web pura: nada de chaves de API, apenas dados deste navegador.
+	     Settings for a plain web app: no API keys, only data kept in this browser. -->
+	<dialog class="settings-dialog" aria-labelledby="settings-title">
+		<header class="settings-dialog__header">
+			<div>
+				<h2 id="settings-title">Configurações</h2>
+				<p>Tudo fica salvo apenas neste navegador — sem conta e sem login.</p>
 			</div>
-			<p class="api-settings-status" role="status" aria-live="polite"></p>
-		</form>
+			<button class="icon-button settings-dialog__close" type="button" aria-label="Fechar configurações" data-settings-close><span class="mdi mdi-close" aria-hidden="true"></span></button>
+		</header>
+		<div class="settings-dialog__body">
+			<section class="settings-section" id="settings-storage" aria-labelledby="settings-storage-title">
+				<h3 id="settings-storage-title">Armazenamento e dados locais</h3>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Downloads de músicas offline</strong>
+						<span class="settings-row__hint" data-storage="downloads" role="status" aria-live="polite">Calculando…</span>
+					</div>
+					<button class="settings-button settings-button--danger" type="button" data-settings-action="remove-downloads">Remover músicas baixadas</button>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Cache de dados do navegador</strong>
+						<span class="settings-row__hint" data-storage="browser" role="status" aria-live="polite">Calculando…</span>
+					</div>
+					<button class="settings-button" type="button" data-settings-action="clear-history">Limpar cache e histórico</button>
+				</div>
+				<p class="settings-section__note">Limpar o cache e o histórico remove contagens e arquivos temporários, mas mantém seus favoritos fixados e o perfil.</p>
+			</section>
+
+			<section class="settings-section" id="settings-library" aria-labelledby="settings-library-title">
+				<h3 id="settings-library-title">Sua biblioteca e arquivos</h3>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Mostrar arquivos locais do dispositivo</strong>
+						<span class="settings-row__hint">Permite escolher arquivos .mp3/.m4a deste dispositivo para tocar na hora.</span>
+					</div>
+					<button class="settings-switch" type="button" role="switch" aria-checked="false" aria-label="Mostrar arquivos locais do dispositivo" data-setting="showLocalFiles"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
+				</div>
+				<div class="settings-row settings-row--stacked" data-local-files-actions hidden>
+					<button class="settings-button" type="button" data-settings-action="pick-files">Escolher arquivos do dispositivo</button>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Usar layout de biblioteca compacta</strong>
+						<span class="settings-row__hint">Deixa a lista lateral mais densa para caber mais itens na tela.</span>
+					</div>
+					<button class="settings-switch" type="button" role="switch" aria-checked="false" aria-label="Usar layout de biblioteca compacta" data-setting="compactLibrary"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
+				</div>
+			</section>
+
+			<section class="settings-section" id="settings-display" aria-labelledby="settings-display-title">
+				<h3 id="settings-display-title">Exibição e interface</h3>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Densidade do layout</strong>
+						<span class="settings-row__hint">Ajusta espaçamentos, cartões e a lateral em tempo real.</span>
+					</div>
+					<div class="settings-segmented" role="group" aria-label="Densidade do layout">
+						<button type="button" data-density-option="dense" aria-pressed="false">Denso</button>
+						<button type="button" data-density-option="default" aria-pressed="true">Padrão</button>
+						<button type="button" data-density-option="wide" aria-pressed="false">Amplo</button>
+					</div>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Mostrar painel do que está tocando agora ao clicar no play</strong>
+						<span class="settings-row__hint">Abre o painel da direita com capa, letra e controles rápida</span>
+					</div>
+					<button class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="Mostrar painel do que está tocando agora ao clicar no play" data-setting="showNowPlayingPanel"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
+				</div>
+			</section>
+
+			<section class="settings-section" id="settings-playback" aria-labelledby="settings-playback-title">
+				<h3 id="settings-playback-title">Reprodução</h3>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Autoplay</strong>
+						<span class="settings-row__hint">Ao terminar a fila, busca e toca uma faixa parecida no Invidious.</span>
+					</div>
+					<button class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="Autoplay de faixas parecidas" data-setting="autoplay"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Sem pausas</strong>
+						<span class="settings-row__hint">Prepara a próxima faixa durante os últimos segundos da atual.</span>
+					</div>
+					<button class="settings-switch" type="button" role="switch" aria-checked="false" aria-label="Transição sem pausas entre faixas" data-setting="gapless"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Qualidade de stream e download</strong>
+						<span class="settings-row__hint">Escolhe a faixa de bitrate correspondente nos formatos do Invidious.</span>
+					</div>
+					<label class="settings-field">
+						<span class="visually-hidden">Qualidade de stream e download</span>
+						<select data-setting="quality">
+							<option value="low">Baixa</option>
+							<option value="normal" selected>Normal</option>
+							<option value="high">Alta</option>
+						</select>
+					</label>
+				</div>
+			</section>
+
+			<section class="settings-section" id="settings-profile" aria-labelledby="settings-profile-title">
+				<h3 id="settings-profile-title">Perfil local</h3>
+				<div class="settings-row settings-row--stacked">
+					<label class="settings-field settings-field--block" for="settings-profile-name">
+						<span>Nome do perfil</span>
+						<input id="settings-profile-name" type="text" maxlength="40" autocomplete="nickname" placeholder="Como quer ser chamado?" data-setting="profileName">
+					</label>
+					<p class="settings-section__note">Seu nome aparece no ícone do perfil e fica guardado neste navegador. Nenhum login é necessário.</p>
+				</div>
+			</section>
+		</div>
+		<footer class="settings-dialog__footer">
+			<a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacidade e seus direitos (LGPD)</a>
+			<span class="settings-dialog__status" role="status" aria-live="polite"></span>
+		</footer>
 	</dialog>
 	<div class="toast" role="status" aria-live="polite"></div>
 </body>

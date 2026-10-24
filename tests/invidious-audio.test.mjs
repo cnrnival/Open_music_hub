@@ -40,6 +40,22 @@ test("selectInvidiousAudioFormat picks the highest-bitrate audio-only stream", (
     assert.equal(selected.bitrate, 160000);
 });
 
+test("selectInvidiousAudioFormat maps the three quality tiers onto available formats", () => {
+    const threeTiers = {
+        adaptiveFormats: [
+            { url: "https://media.example/low.m4a", type: "audio/mp4", container: "m4a", bitrate: "48000" },
+            { url: "https://media.example/normal.m4a", type: "audio/mp4", container: "m4a", bitrate: "128000" },
+            { url: "https://media.example/high.webm", type: "audio/webm", container: "webm", bitrate: "160000" }
+        ]
+    };
+    assert.equal(selectInvidiousAudioFormat(threeTiers, "low").bitrate, 48000);
+    assert.equal(selectInvidiousAudioFormat(threeTiers, "normal").bitrate, 128000);
+    assert.equal(selectInvidiousAudioFormat(threeTiers, "high").bitrate, 160000);
+    // Qualquer valor desconhecido mantém a melhor qualidade disponível.
+    // Any unknown value keeps the best available quality.
+    assert.equal(selectInvidiousAudioFormat(threeTiers, "ultra").bitrate, 160000);
+});
+
 test("selectInvidiousAudioFormat ignores muxed video and reports missing audio", () => {
     assert.equal(selectInvidiousAudioFormat({
         adaptiveFormats: [{ url: "https://media.example/muxed.mp4", type: "video/mp4", container: "mp4", bitrate: "1" }]
@@ -60,7 +76,7 @@ test("the detail route exposes the same-origin proxy plus the direct audio URL",
         await handleRequest({ method: "GET", url: "/api/invidious/videos/abc123", headers: {} }, response);
         assert.equal(response.statusCode, 200);
         const payload = JSON.parse(response.body);
-        const expectedStream = "/api/invidious?action=stream&id=abc123";
+        const expectedStream = "/api/invidious?action=stream&id=abc123&quality=high";
         assert.equal(payload.audioUrl, expectedStream);
         assert.equal(payload.item.audioUrl, expectedStream);
         assert.equal(payload.audio.url, expectedStream);
@@ -84,7 +100,7 @@ test("the audio action returns the resolved proxy stream path", async () => {
         await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=xyz789", headers: {} }, response);
         assert.equal(response.statusCode, 200);
         const payload = JSON.parse(response.body);
-        assert.equal(payload.audioUrl, "/api/invidious?action=stream&id=xyz789");
+        assert.equal(payload.audioUrl, "/api/invidious?action=stream&id=xyz789&quality=high");
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -105,7 +121,23 @@ test("a transient upstream 5xx is retried before the request fails", async () =>
         await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=retry123", headers: {} }, response);
         assert.equal(response.statusCode, 200);
         assert.equal(calls, 2);
-        assert.equal(JSON.parse(response.body).audioUrl, "/api/invidious?action=stream&id=retry123");
+        assert.equal(JSON.parse(response.body).audioUrl, "/api/invidious?action=stream&id=retry123&quality=high");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("the audio action forwards the requested quality to the resolved stream", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => videoWithFormats });
+    try {
+        const response = createResponse();
+        await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=quality9&quality=low", headers: {} }, response);
+        assert.equal(response.statusCode, 200);
+        const payload = JSON.parse(response.body);
+        assert.equal(payload.audioUrl, "/api/invidious?action=stream&id=quality9&quality=low");
+        assert.equal(payload.directAudioUrl, "https://media.example/low.m4a");
+        assert.equal(payload.audio.bitrate, 64000);
     } finally {
         globalThis.fetch = originalFetch;
     }

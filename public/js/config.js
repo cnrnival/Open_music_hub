@@ -276,8 +276,10 @@ const API_CONFIG = Object.freeze({
                 const query = new URLSearchParams({ action, ...params });
                 return `${this.proxyBasePath}?${query}`;
             },
-            audioPath(videoId) {
-                return this.proxyPath("audio", { id: videoId });
+            // A qualidade é opcional para não quebrar chamadas antigas sem preferência.
+            // Quality is optional so older callers without a preference keep working.
+            audioPath(videoId, quality = "") {
+                return this.proxyPath("audio", quality ? { id: videoId, quality } : { id: videoId });
             },
             streamPath(videoId) {
                 return this.proxyPath("stream", { id: videoId });

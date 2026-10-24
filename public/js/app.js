@@ -18,8 +18,11 @@ const dialogTitle = document.querySelector("#dialog-title");
 const dialogBody = document.querySelector(".app-dialog__body");
 const dialogConfirm = document.querySelector(".app-dialog__confirm");
 const toast = document.querySelector(".toast");
-const apiSettingsDialog = document.querySelector(".api-settings-dialog");
-const spotifyClientIdInput = document.querySelector("#spotify-client-id");
+const settingsDialog = document.querySelector(".settings-dialog");
+const settingsStatus = document.querySelector(".settings-dialog__status");
+const profileButton = document.querySelector(".profile-button");
+const profileButtonContent = document.querySelector("#profileButtonContent");
+const settingsLocalFileActions = document.querySelector("[data-local-files-actions]");
 const workspace = document.querySelector(".workspace");
 const libraryPanel = document.querySelector(".library-panel");
 const mainView = document.querySelector(".main-view");
@@ -47,10 +50,7 @@ const apiSearchStatus = document.querySelector(".api-search-status");
 const storageKeys = Object.freeze({
     stats: "open-music-hub:stats",
     legacyStats: "clone-spotify:stats",
-    clientId: "open-music-hub:client-id",
-    legacyClientId: "clone-spotify:client-id",
-    oauthState: "open-music-hub:oauth-state",
-    oauthVerifier: "open-music-hub:oauth-verifier"
+    preferences: "open-music-hub:preferences"
 });
 
 const localAudioUrls = new Set();
@@ -65,13 +65,8 @@ let currentTrack = {
 };
 let currentDetail;
 let currentDetailTracks = [];
-let spotifyAccessToken;
-let spotifyTokenExpiresAt = 0;
-let spotifyClientId = "";
 let jamendoEnabled = false;
 let audioDbEnabled = false;
-let spotifyAuthState = "";
-let spotifyAuthVerifier = "";
 let searchRequestId = 0;
 let searchDebounce;
 let apiSearchAbortController;
@@ -94,6 +89,67 @@ let ignoreNextRangeChange = false;
 let playbackRequestId = 0;
 let jamendoFallbackAttemptId = 0;
 let currentOfflineObjectUrl = "";
+let importCardDismissed = false;
+let autoplayPlayedIds = new Set();
+let gaplessPreparedKey = "";
+
+// Preferências locais: densidade, biblioteca, reprodução e perfil ficam só neste navegador.
+// Local preferences: density, library, playback, and profile stay in this browser only.
+const defaultPreferences = Object.freeze({
+    density: "default",
+    compactLibrary: false,
+    showLocalFiles: false,
+    showNowPlayingPanel: true,
+    autoplay: true,
+    gapless: false,
+    quality: "normal",
+    profileName: ""
+});
+let preferences = readPreferences();
+
+// Lê e normaliza as preferências persistidas, ignorando valores desconhecidos.
+// Read and normalize persisted preferences, ignoring unknown values.
+function readPreferences() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(storageKeys.preferences) || "{}");
+        const stored = parsed && typeof parsed === "object" ? parsed : {};
+        const profileName = typeof stored.profileName === "string" ? stored.profileName.trim().slice(0, 40) : "";
+        return {
+            density: ["dense", "default", "wide"].includes(stored.density) ? stored.density : defaultPreferences.density,
+            compactLibrary: typeof stored.compactLibrary === "boolean" ? stored.compactLibrary : defaultPreferences.compactLibrary,
+            showLocalFiles: typeof stored.showLocalFiles === "boolean" ? stored.showLocalFiles : defaultPreferences.showLocalFiles,
+            showNowPlayingPanel: typeof stored.showNowPlayingPanel === "boolean"
+                ? stored.showNowPlayingPanel
+                : defaultPreferences.showNowPlayingPanel,
+            autoplay: typeof stored.autoplay === "boolean" ? stored.autoplay : defaultPreferences.autoplay,
+            gapless: typeof stored.gapless === "boolean" ? stored.gapless : defaultPreferences.gapless,
+            quality: ["low", "normal", "high"].includes(stored.quality) ? stored.quality : defaultPreferences.quality,
+            profileName
+        };
+    } catch (error) {
+        console.error("Could not read local preferences.", error);
+        return { ...defaultPreferences };
+    }
+}
+
+// Persiste o objeto completo para manter o formato estável entre versões.
+// Persist the whole object so the stored shape stays stable across versions.
+function savePreferences() {
+    try {
+        localStorage.setItem(storageKeys.preferences, JSON.stringify(preferences));
+        return true;
+    } catch (error) {
+        console.error("Could not save local preferences.", error);
+        showToast("Não foi possível salvar as configurações neste navegador.");
+        return false;
+    }
+}
+
+function setPreference(key, value) {
+    preferences = { ...preferences, [key]: value };
+    savePreferences();
+    applyPreferences();
+}
 
 // Library starts empty by default - items are added via search/pin and persisted in localStorage
 // A biblioteca inicia vazia por padrão - itens são adicionados via busca/pin e persistidos no localStorage
@@ -123,27 +179,9 @@ function showDialog(heading, message, confirmText = "Entendi") {
     dialog.showModal();
 }
 
-// Render lyric responses as plain text so provider content is never interpreted as markup.
-// Renderiza letras como texto para impedir que conteúdo externo seja interpretado como HTML.
-async function showLyrics() {
-    const trackArtist = currentTrack.artistName;
-    const trackTitle = currentTrack.title;
-    showDialog("Letra da música", "Buscando letras em Lyrics.ovh…", "Fechar");
-    if (!trackArtist || trackArtist === "Arquivo local" || !trackTitle) {
-        dialogBody.firstElementChild.textContent = "As letras precisam do nome do artista e da faixa. Procure a música no catálogo para tentar novamente.";
-        return;
-    }
-    try {
-        const payload = await fetchJson(API_CONFIG.providers.lyrics.searchPath(trackArtist, trackTitle));
-        const lyrics = document.createElement("pre");
-        lyrics.className = "lyrics-text";
-        lyrics.textContent = payload.lyrics;
-        dialogBody.replaceChildren(lyrics);
-    } catch (error) {
-        console.error("Could not load lyrics.", error);
-        dialogBody.firstElementChild.textContent = `Não foi possível carregar a letra: ${error.message}`;
-    }
-}
+// As letras agora vivem na vista "Em exibição" expandida, sincronizadas com o áudio.
+// Lyrics now live in the expanded "Now Playing" view, synced with the audio.
+
 
 function showPlaylistDialog() {
     dialogTitle.textContent = "Criar playlist";
@@ -191,36 +229,6 @@ function normalizeDeezerItem(type, item) {
         releaseDate: item.release_date || "",
         fanCount: Number(item.nb_fan) || 0,
         trackCountLabel: item.nb_tracks_human || ""
-    };
-}
-
-// Normaliza registros do Spotify sem tratar a popularidade da API como reproduções reais.
-// Normalize Spotify records without treating API popularity as actual play counts.
-function normalizeSpotifyItem(type, item) {
-    const track = type === "track" ? item : null;
-    const album = track?.album || (type === "album" ? item : null);
-    const primaryArtist = track?.artists?.[0] || album?.artists?.[0] || item.artists?.[0] || {};
-    const firstImage = item.images?.[0]?.url || album?.images?.[0]?.url || track?.album?.images?.[0]?.url || "";
-
-    return {
-        provider: "spotify",
-        kind: type,
-        id: String(item.id),
-        title: item.name || "Sem título",
-        description: item.description || "",
-        artistName: primaryArtist.name || item.owner?.display_name || "",
-        artistId: primaryArtist.id ? String(primaryArtist.id) : "",
-        artistImage: primaryArtist.images?.[0]?.url || "",
-        albumName: album?.name || "",
-        albumId: album?.id ? String(album.id) : "",
-        image: firstImage,
-        previewUrl: track?.preview_url || "",
-        externalUrl: item.external_urls?.spotify || "",
-        durationSeconds: track?.duration_ms ? Math.round(track.duration_ms / 1000) : 0,
-        trackCount: item.tracks?.total || item.total_tracks || 0,
-        releaseDate: album?.release_date || item.release_date || "",
-        fanCount: item.followers?.total || 0,
-        popularity: item.popularity || 0
     };
 }
 
@@ -282,8 +290,8 @@ function normalizeInvidiousItem(item) {
     };
 }
 
-// Lê as contagens deste navegador; elas não são estatísticas globais de reprodução do Spotify.
-// Read only this browser's local interaction counters; they are not global Spotify play statistics.
+// Lê as contagens deste navegador; elas não são estatísticas globais de nenhum catálogo.
+// Read only this browser's local interaction counters; they are not any catalog's global play statistics.
 function readLocalStats() {
     try {
         const storedStats = JSON.parse(
@@ -369,8 +377,8 @@ function safeCoverUrl(value) {
     }
 }
 
-// Permite navegação externa somente para páginas oficiais retornadas pelo Deezer ou Spotify.
-// Allow external navigation only to official Deezer or Spotify pages returned by those providers.
+// Permite navegação externa somente para páginas oficiais dos provedores suportados.
+// Allow external navigation only to official pages from supported providers.
 function safeProviderUrl(value) {
     if (!value) {
         return "";
@@ -378,8 +386,7 @@ function safeProviderUrl(value) {
     try {
         const url = new URL(value);
         const approved = url.protocol === "https:"
-            && (url.hostname === "spotify.com" || url.hostname.endsWith(".spotify.com")
-                || url.hostname === "deezer.com" || url.hostname.endsWith(".deezer.com")
+            && (url.hostname === "deezer.com" || url.hostname.endsWith(".deezer.com")
                 || url.hostname === "jamendo.com" || url.hostname.endsWith(".jamendo.com")
                 || url.hostname === "musicbrainz.org" || url.hostname.endsWith(".musicbrainz.org")
                 || url.hostname === "creativecommons.org" || url.hostname.endsWith(".creativecommons.org")
@@ -417,105 +424,8 @@ async function fetchJson(url, options = {}) {
     return payload;
 }
 
-// O Spotify usa Authorization Code com PKCE; nenhum client secret é enviado ao navegador.
-// Spotify uses Authorization Code with PKCE: no client secret is sent to the browser.
-async function fetchSpotify(path) {
-    if (!spotifyAccessToken || Date.now() >= spotifyTokenExpiresAt) {
-        throw new Error("Conecte novamente sua conta Spotify para continuar.");
-    }
-    return fetchJson(new URL(path, API_CONFIG.providers.spotify.apiBaseUrl), {
-        headers: { Authorization: `Bearer ${spotifyAccessToken}` }
-    });
-}
-
-// O OAuth usa um verificador temporário por sessão e um Client ID público.
-// OAuth uses a short-lived, per-session verifier and a public Client ID.
-async function connectSpotify() {
-    const clientId = spotifyClientIdInput.value.trim();
-    if (!clientId) {
-        document.querySelector(".api-settings-status").textContent = "Informe o Client ID público do Spotify Developer Dashboard.";
-        spotifyClientIdInput.focus();
-        return;
-    }
-
-    spotifyClientId = clientId;
-    try {
-        localStorage.setItem("clone-spotify:client-id", clientId);
-    } catch (error) {
-        console.error("Could not save the Spotify Client ID in this browser.", error);
-        showToast("Não foi possível salvar o Client ID neste navegador.");
-        return;
-    }
-
-    const stateBytes = crypto.getRandomValues(new Uint8Array(32));
-    const verifierBytes = crypto.getRandomValues(new Uint8Array(48));
-    spotifyAuthState = [...stateBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    spotifyAuthVerifier = [...verifierBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    sessionStorage.setItem(storageKeys.oauthState, spotifyAuthState);
-    sessionStorage.setItem(storageKeys.oauthVerifier, spotifyAuthVerifier);
-
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(spotifyAuthVerifier));
-    const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-    const redirectUri = new URL(API_CONFIG.providers.spotify.redirectPath, window.location.origin).href;
-    const query = new URLSearchParams({
-        client_id: spotifyClientId,
-        response_type: "code",
-        redirect_uri: redirectUri,
-        code_challenge_method: "S256",
-        code_challenge: challenge,
-        state: spotifyAuthState,
-        scope: API_CONFIG.providers.spotify.scopes
-    });
-    window.location.assign(`${API_CONFIG.providers.spotify.authorizationUrl}?${query}`);
-}
-
-// Troca o código de retorno somente após validar o estado OAuth armazenado nesta aba.
-// Exchange the callback code only after checking the OAuth state stored in this tab.
-async function finishSpotifyLogin() {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    if (!code) {
-        if (params.has("error")) {
-            showToast(`Conexão Spotify cancelada: ${params.get("error")}.`);
-            window.history.replaceState({}, "", window.location.pathname);
-        }
-        return;
-    }
-
-    const returnedState = params.get("state");
-    const expectedState = sessionStorage.getItem(storageKeys.oauthState);
-    const verifier = sessionStorage.getItem(storageKeys.oauthVerifier);
-    if (!returnedState || returnedState !== expectedState || !verifier || !spotifyClientId) {
-        window.history.replaceState({}, "", window.location.pathname);
-        throw new Error("A validação de segurança do login Spotify falhou. Tente conectar novamente.");
-    }
-
-    const body = new URLSearchParams({
-        client_id: spotifyClientId,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: new URL(API_CONFIG.providers.spotify.redirectPath, window.location.origin).href,
-        code_verifier: verifier
-    });
-    const token = await fetchJson(API_CONFIG.providers.spotify.tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body
-    });
-    spotifyAccessToken = token.access_token;
-    spotifyTokenExpiresAt = Date.now() + Number(token.expires_in || 3600) * 1000 - 30000;
-    sessionStorage.removeItem(storageKeys.oauthState);
-    sessionStorage.removeItem(storageKeys.oauthVerifier);
-    window.history.replaceState({}, "", window.location.pathname);
-    apiSettingsDialog.close();
-    showToast("Spotify conectado. A busca agora inclui resultados da sua conta.");
-}
-
-// Consulta cada provedor independentemente para manter o Deezer útil antes do login Spotify.
-// Fetch both providers independently so Deezer search remains useful before Spotify login.
+// Consulta cada provedor independentemente para manter o Deezer útil mesmo se outro falhar.
+// Fetch each provider independently so Deezer stays useful even when another one fails.
 async function searchMusicProviders(query) {
     const requestId = ++searchRequestId;
     apiSearchAbortController?.abort();
@@ -524,9 +434,6 @@ async function searchMusicProviders(query) {
     const searchingProviders = ["Deezer", "Invidious"];
     if (jamendoEnabled) {
         searchingProviders.push("Jamendo");
-    }
-    if (spotifyAccessToken && Date.now() < spotifyTokenExpiresAt) {
-        searchingProviders.push("Spotify");
     }
     apiSearchStatus.textContent = `Buscando em ${searchingProviders.join(", ")}…`;
     apiSearchGrid.replaceChildren();
@@ -586,31 +493,17 @@ async function searchMusicProviders(query) {
         }
     }
 
-    if (spotifyAccessToken && Date.now() < spotifyTokenExpiresAt) {
-        try {
-            const types = "track,artist,album,playlist";
-            const spotify = await fetchSpotify(API_CONFIG.providers.spotify.endpoints.search(query, types));
-            successfulProviders.add("Spotify");
-            for (const type of ["track", "artist", "album", "playlist"]) {
-                for (const item of spotify[`${type}s`]?.items || []) {
-                    results.push(normalizeSpotifyItem(type, item));
-                }
-            }
-        } catch (error) {
-            console.error("Spotify search failed.", error);
-            errors.push(`Spotify: ${error.message}`);
-        }
-    }
-
     if (requestId !== searchRequestId) {
         return;
     }
     providerSearchResults = results;
     renderApiSearchResults(results);
+    // As sugestões derivam dos resultados: reflete a lista assim que ela chega.
+    // Suggestions derive from the results: refresh them as soon as the list arrives.
+    renderSearchSuggestions();
     const providerNames = [...successfulProviders].join("/");
-    const spotifyConnected = spotifyAccessToken && Date.now() < spotifyTokenExpiresAt;
     const providerSummary = successfulProviders.size
-        ? `${results.length} resultados de ${providerNames}${spotifyConnected ? "" : " • conecte o Spotify para incluir suas buscas"}${jamendoEnabled ? "" : " • configure Jamendo para faixas completas licenciadas"}`
+        ? `${results.length} resultados de ${providerNames}`
         : "Nenhum provedor respondeu";
     apiSearchStatus.textContent = errors.length
         ? `${providerSummary}. Alguns provedores falharam: ${errors.join(" ")}`
@@ -623,6 +516,9 @@ async function searchMusicProviders(query) {
     } else {
         apiSearchStatus.removeAttribute("role");
     }
+    // Devolve os registros para a navegação por Enter (resultados ou artista exato).
+    // Return the records so Enter navigation can pick results or an exact artist.
+    return results;
 }
 
 // Cria cartões com nós de texto para impedir que dados externos sejam interpretados como HTML.
@@ -654,8 +550,7 @@ function renderApiSearchResults(results) {
         const providerNames = {
             deezer: "Deezer",
             invidious: "Invidious",
-            jamendo: "Jamendo",
-            spotify: "Spotify"
+            jamendo: "Jamendo"
         };
         const providerName = providerNames[item.provider] || "Catálogo";
         subheading.textContent = `${item.kind === "artist" ? "Artista" : item.kind === "album" ? "Álbum" : item.kind === "playlist" ? "Playlist" : "Música"} • ${item.artistName || providerName} • ${providerName}`;
@@ -779,7 +674,6 @@ async function openDetail(item, { history = true } = {}) {
             providerLink.rel = "noopener noreferrer";
             const providerNames = {
                 deezer: "Deezer",
-                spotify: "Spotify",
                 jamendo: "Jamendo"
             };
             providerLink.textContent = `Abrir no ${providerNames[updatedItem.provider] || "provedor"}`;
@@ -911,8 +805,8 @@ async function loadArtistSupplemental(item) {
         : `Sem discografia disponível${errors.length ? `; ${errors.join(" e ")}` : ""}.`;
 }
 
-// Busca detalhes e faixas relacionadas pelo proxy local do Deezer ou pela Web API do Spotify.
-// Request details and related tracks using either the local Deezer proxy or Spotify Web API.
+// Busca detalhes e faixas relacionadas pelos provedores públicos suportados.
+// Request details and related tracks from the supported public providers.
 async function fetchProviderDetail(item) {
     if (item.provider === "local") {
         return { item, tracks: item.kind === "artist" ? [] : [item] };
@@ -961,38 +855,9 @@ async function fetchProviderDetail(item) {
         };
     }
 
-    if (item.kind === "artist") {
-        const [artistDetail, topTracks] = await Promise.all([
-            fetchSpotify(API_CONFIG.providers.spotify.endpoints.artist(item.id)),
-            fetchSpotify(API_CONFIG.providers.spotify.endpoints.artistTopTracks(item.id))
-        ]);
-        return {
-            item: normalizeSpotifyItem("artist", artistDetail),
-            tracks: (topTracks.tracks || []).map((track) => normalizeSpotifyItem("track", track))
-        };
-    }
-    if (item.kind === "album") {
-        const [album, tracks] = await Promise.all([
-            fetchSpotify(API_CONFIG.providers.spotify.endpoints.album(item.id)),
-            fetchSpotify(API_CONFIG.providers.spotify.endpoints.albumTracks(item.id))
-        ]);
-        return {
-            item: normalizeSpotifyItem("album", album),
-            tracks: (tracks.items || []).map((track) => normalizeSpotifyItem("track", { ...track, album }))
-        };
-    }
-    if (item.kind === "playlist") {
-        const playlist = await fetchSpotify(API_CONFIG.providers.spotify.endpoints.playlist(item.id));
-        return {
-            item: normalizeSpotifyItem("playlist", playlist),
-            tracks: (playlist.tracks?.items || [])
-                .map((entry) => entry.track)
-                .filter(Boolean)
-                .map((track) => normalizeSpotifyItem("track", track))
-        };
-    }
-    const track = await fetchSpotify(API_CONFIG.providers.spotify.endpoints.track(item.id));
-    return { item: normalizeSpotifyItem("track", track), tracks: [normalizeSpotifyItem("track", track)] };
+    // Itens antigos de provedores removidos continuam abrindo com os dados guardados.
+    // Legacy entries from removed providers still open with their stored metadata.
+    return { item, tracks: [] };
 }
 
 // Renderiza faixas com imagens do catálogo e contagens locais de reprodução e salvamento.
@@ -1054,19 +919,29 @@ function renderTrackRows(tracks) {
 
 // Resolve (e memoriza) a URL de áudio completo do Invidious para uma faixa.
 // Resolve (and memoize) the full Invidious audio URL for a track.
-async function ensureInvidiousAudioUrl(track, requestId) {
+async function ensureInvidiousAudioUrl(track, requestId, { silent = false } = {}) {
     if (!track || track.provider !== "invidious" || !track.id) {
         return "";
     }
-    if (track.audioUrl || track.directAudioUrl) {
+    // A URL memorizada vale apenas para a qualidade atual; trocar de qualidade força nova resolução.
+    // The memoized URL is valid only for the current quality; changing it forces a new resolution.
+    if ((track.audioUrl || track.directAudioUrl) && track.audioQuality === preferences.quality) {
         return track.directAudioUrl || track.audioUrl;
     }
-    status.textContent = "Extraindo o áudio completo no Invidious…";
+    if (track.audioUrl || track.directAudioUrl) {
+        track.audioUrl = "";
+        track.directAudioUrl = "";
+    }
+    if (!silent) {
+        status.textContent = "Extraindo o áudio completo no Invidious…";
+    }
     // A instância pública falha em rajadas; uma segunda tentativa evita erro transitório.
     // The public instance fails in bursts; one more attempt avoids a transient error.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
-            const payload = await fetchJson(API_CONFIG.providers.invidious.audioPath(track.id));
+            // A qualidade escolhida nas configurações viaja até a seleção de adaptiveFormats.
+            // The quality chosen in settings travels down to the adaptiveFormats selection.
+            const payload = await fetchJson(API_CONFIG.providers.invidious.audioPath(track.id, preferences.quality));
             if (requestId !== undefined && requestId !== playbackRequestId) {
                 return "";
             }
@@ -1077,6 +952,7 @@ async function ensureInvidiousAudioUrl(track, requestId) {
             }
             track.audioUrl = audioUrl;
             track.directAudioUrl = directAudioUrl;
+            track.audioQuality = preferences.quality;
             track.audioMimeType = payload.audio?.mimeType || "";
             track.audioContainer = payload.audio?.container || "";
             // Reproduz pela URL direta (IP do usuário) e mantém o proxy de mesma origem como alternativa.
@@ -1245,6 +1121,13 @@ async function playTrack(track, { autoplay = true } = {}) {
     }
     updateTrackLabels(track.title, track.artistName || "Artista desconhecido", false);
     syncCurrentTrackSaveState(track);
+    // O painel da direita segue a preferência "mostrar ao clicar no play".
+    // The right-side panel follows the "show on play" preference.
+    if (preferences.showNowPlayingPanel) {
+        showNowPlayingPanel();
+    } else {
+        hideNowPlayingPanel();
+    }
     document.querySelector(".now-playing-panel__track-title").textContent = track.title;
     document.querySelector(".now-playing-panel__artist").textContent = track.artistName || "Artista desconhecido";
     document.querySelector(".now-playing-panel__art").style.backgroundImage = "";
@@ -1308,9 +1191,9 @@ async function playTrack(track, { autoplay = true } = {}) {
     }
 
     // 3) Demais provedores: Jamendo licenciado e, depois, áudio completo no Invidious.
-    // As prévias de 30 segundos da Deezer/Spotify não são usadas.
+    // As prévias de 30 segundos das lojas não são usadas.
     // 3) Other providers: licensed Jamendo, then full Invidious audio.
-    // The 30-second Deezer/Spotify previews are never used.
+    // The stores' 30-second previews are never used.
     if (!playableUrl) {
         if (track.provider === "local") {
             playableUrl = track.previewUrl || "";
@@ -1339,7 +1222,7 @@ async function playTrack(track, { autoplay = true } = {}) {
         pendingPlayCount = false;
         playButton.disabled = true;
         progress.disabled = true;
-        status.textContent = ["invidious", "deezer", "spotify"].includes(track.provider)
+        status.textContent = ["invidious", "deezer"].includes(track.provider)
             ? "Não foi possível obter o áudio completo desta faixa. Tente outra versão."
             : "Esta faixa não tem áudio disponível no catálogo.";
         showToast(status.textContent);
@@ -1852,7 +1735,7 @@ async function showNewsView({ history = true } = {}) {
                 ? { provider, kind, id, title: value.title || "Artista" }
                 : null;
         })
-        .filter((item) => item && ["deezer", "spotify"].includes(item.provider))
+        .filter((item) => item && item.provider === "deezer")
         .slice(-8);
 
     if (!savedArtists.length) {
@@ -1868,11 +1751,8 @@ async function showNewsView({ history = true } = {}) {
             if (savedArtist.provider === "deezer") {
                 const payload = await fetchJson(API_CONFIG.providers.deezer.artistAlbumsPath(savedArtist.id));
                 items = (payload.results || []).map((album) => normalizeDeezerItem("album", album));
-            } else if (spotifyAccessToken && Date.now() < spotifyTokenExpiresAt) {
-                const payload = await fetchSpotify(API_CONFIG.providers.spotify.endpoints.artistAlbums(savedArtist.id));
-                items = (payload.items || []).map((album) => normalizeSpotifyItem("album", album));
             } else {
-                errors.push(`${savedArtist.title}: conecte o Spotify para consultar os lançamentos.`);
+                errors.push(`${savedArtist.title}: provedor sem suporte a lançamentos.`);
                 return;
             }
             for (const release of items) {
@@ -1958,24 +1838,17 @@ async function openNamedArtist(name, sourceItem = currentTrack) {
     }
 }
 
-// Lê o Client ID público do .env local e prioriza a configuração explícita do navegador.
-// Load the public Client ID from local .env and prefer an explicit browser setting when present.
+// Descobre no servidor apenas quais provedores opcionais estão configurados.
+// Ask the server only which optional providers are configured.
 async function loadApiConfiguration() {
     try {
         const config = await fetchJson(API_CONFIG.serverRoutes.configuration);
         jamendoEnabled = config.jamendoEnabled === true;
         audioDbEnabled = config.audioDbEnabled === true;
-        const storedClientId = localStorage.getItem(storageKeys.clientId)
-            || localStorage.getItem(storageKeys.legacyClientId);
-        spotifyClientId = storedClientId || config.spotifyClientId || "";
-        spotifyClientIdInput.value = spotifyClientId;
-        await finishSpotifyLogin();
     } catch (error) {
-        console.error("Could not load API configuration.", error);
-        document.querySelector(".api-settings-status").textContent = "Inicie o servidor local com `node server.js` para usar as APIs.";
-        if (new URLSearchParams(window.location.search).has("code")) {
-            showToast(error.message);
-        }
+        // O app continua útil offline; os catálogos apenas ficam indisponíveis.
+        // The app stays usable offline; only the catalogs become unavailable.
+        console.error("Could not load the optional provider configuration.", error);
     }
 }
 
@@ -2210,14 +2083,86 @@ function advanceQueue(direction = 1) {
     playTrack(playbackQueue[nextIndex]);
 }
 
-document.querySelector(".Pplay-music__cover").addEventListener("click", () => fileInput.click());
-document.querySelector(".import-card__button").addEventListener("click", () => fileInput.click());
+// Arquivos locais só entram quando a preferência correspondente está ativa.
+// Local files are only accepted while the matching preference is enabled.
+function requestLocalAudioFiles() {
+    if (!preferences.showLocalFiles) {
+        showToast("Ative “Mostrar arquivos locais” nas configurações para escolher arquivos do dispositivo.");
+        openSettings("settings-library");
+        return;
+    }
+    fileInput.click();
+}
+
+document.querySelector(".Pplay-music__cover").addEventListener("click", requestLocalAudioFiles);
+document.querySelector(".import-card__button").addEventListener("click", requestLocalAudioFiles);
 document.querySelector(".music-player__next").addEventListener("click", () => {
     advanceQueue();
 });
 
+// Busca no Invidious uma faixa parecida com a atual e retoma a reprodução.
+// Look up an Invidious track similar to the current one and resume playback.
+async function playSimilarTrack() {
+    const query = currentTrack.artistName && currentTrack.artistName !== "Arquivo local"
+        ? currentTrack.artistName
+        : currentTrack.title;
+    if (!query) {
+        return false;
+    }
+    status.textContent = "Autoplay: buscando uma faixa parecida…";
+    try {
+        const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
+        const nextVideo = (payload.results || []).find((video) => (
+            video.videoId
+            && video.videoId !== currentTrack.id
+            && !autoplayPlayedIds.has(video.videoId)
+        ));
+        if (!nextVideo) {
+            return false;
+        }
+        autoplayPlayedIds.add(nextVideo.videoId);
+        // Mantém a memória curta para não crescer durante uma escuta longa.
+        // Keep the memory short so it does not grow during a long listening session.
+        if (autoplayPlayedIds.size > 50) {
+            autoplayPlayedIds = new Set([...autoplayPlayedIds].slice(-25));
+        }
+        showToast(`Autoplay: ${nextVideo.title}`);
+        await playTrack(normalizeInvidiousItem(nextVideo), { autoplay: true });
+        return true;
+    } catch (error) {
+        console.error("Autoplay lookup failed.", error);
+        return false;
+    }
+}
+
+// Prepara a próxima faixa da fila nos últimos segundos para reduzir a pausa entre músicas.
+// Prepare the next queue track in the final seconds to reduce the gap between songs.
+function maybePrepareGaplessTrack() {
+    if (!preferences.gapless || audio.loop) {
+        return;
+    }
+    const nextTrack = playbackQueue[playbackQueueIndex + 1];
+    if (!nextTrack || !Number.isFinite(audio.duration)) {
+        return;
+    }
+    const remaining = audio.duration - audio.currentTime;
+    if (remaining > 20 || remaining < 0) {
+        return;
+    }
+    const nextKey = `${nextTrack.provider}:${nextTrack.kind || "track"}:${nextTrack.id}`;
+    if (gaplessPreparedKey === nextKey) {
+        return;
+    }
+    gaplessPreparedKey = nextKey;
+    if (nextTrack.provider === "invidious" && !nextTrack.audioUrl) {
+        void ensureInvidiousAudioUrl(nextTrack, undefined, { silent: true }).catch((error) => {
+            console.warn("Could not prepare the next track.", error);
+        });
+    }
+}
+
 fileInput.addEventListener("change", () => {
-    if (fileInput.files?.length) {
+    if (fileInput.files?.length && preferences.showLocalFiles) {
         loadAudioFiles(fileInput.files);
     }
     fileInput.value = "";
@@ -2233,7 +2178,10 @@ audio.addEventListener("loadedmetadata", () => {
     updateProgress();
 });
 
-audio.addEventListener("timeupdate", updateProgress);
+audio.addEventListener("timeupdate", () => {
+    updateProgress();
+    maybePrepareGaplessTrack();
+});
 audio.addEventListener("seeked", updateProgress);
 audio.addEventListener("play", () => {
     setPlaybackState(true);
@@ -2257,14 +2205,23 @@ audio.addEventListener("play", () => {
     }
 });
 audio.addEventListener("pause", () => setPlaybackState(false));
-audio.addEventListener("ended", () => {
+audio.addEventListener("ended", async () => {
     setPlaybackState(false);
     updateProgress();
-    if (!audio.loop && playbackQueueIndex >= 0 && playbackQueueIndex + 1 < playbackQueue.length) {
-        advanceQueue();
-    } else if (!audio.loop) {
-        status.textContent = "Reprodução concluída.";
+    gaplessPreparedKey = "";
+    if (audio.loop) {
+        return;
     }
+    if (playbackQueueIndex >= 0 && playbackQueueIndex + 1 < playbackQueue.length) {
+        advanceQueue();
+        return;
+    }
+    // Fila terminou: com o autoplay ligado, busca uma faixa parecida no Invidious.
+    // Queue finished: with autoplay on, look up a similar Invidious track.
+    if (preferences.autoplay && await playSimilarTrack()) {
+        return;
+    }
+    status.textContent = "Reprodução concluída.";
 });
 audio.addEventListener("stalled", () => {
     if (currentTrack.provider !== "local" && !audio.paused) {
@@ -2417,12 +2374,143 @@ searchInput.addEventListener("input", () => {
         apiSearchGrid.replaceChildren();
         apiSearchSection.hidden = true;
         apiSearchStatus.textContent = "";
+        closeSearchSuggestions();
         return;
     }
     searchDebounce = window.setTimeout(() => {
         searchMusicProviders(query);
     }, API_CONFIG.searchDebounceMs);
+    renderSearchSuggestions();
 });
+
+// ===== Caixa de sugestões e navegação com Enter / Suggestions box and Enter navigation =====
+const searchSuggestions = document.querySelector(".search-suggestions");
+
+// Fecha a caixa de sugestões (Enter, Esc, campo vazio ou clique fora).
+// Close the suggestions box (Enter, Esc, empty field, or outside click).
+function closeSearchSuggestions() {
+    searchSuggestions.hidden = true;
+    searchSuggestions.replaceChildren();
+}
+
+// Mostra até seis sugestões derivadas dos resultados já carregados dos provedores.
+// Show up to six suggestions derived from provider results already loaded.
+function renderSearchSuggestions() {
+    const query = searchInput.value.trim();
+    if (query.length < 2 || document.activeElement !== searchInput) {
+        closeSearchSuggestions();
+        return;
+    }
+    const normalizedQuery = query.toLocaleLowerCase("pt-BR");
+    const matches = providerSearchResults
+        .filter((item) => `${item.title} ${item.artistName || ""}`.toLocaleLowerCase("pt-BR").includes(normalizedQuery))
+        .slice(0, 6);
+    if (matches.length === 0) {
+        closeSearchSuggestions();
+        return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const item of matches) {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "search-suggestions__item";
+        option.setAttribute("role", "option");
+        const icon = document.createElement("span");
+        icon.className = `mdi ${item.kind === "artist" ? "mdi-account-music" : item.kind === "album" ? "mdi-album" : item.kind === "playlist" ? "mdi-playlist-music" : "mdi-music"}`;
+        icon.setAttribute("aria-hidden", "true");
+        const labels = document.createElement("span");
+        labels.className = "search-suggestions__labels";
+        const name = document.createElement("strong");
+        name.textContent = item.title;
+        const meta = document.createElement("small");
+        const kindLabel = item.kind === "artist" ? "Artista" : item.kind === "album" ? "Álbum" : item.kind === "playlist" ? "Playlist" : "Música";
+        meta.textContent = `${kindLabel}${item.artistName ? ` • ${item.artistName}` : ""}`;
+        labels.append(name, meta);
+        option.append(icon, labels);
+        // O pointerdown acontece antes do blur do campo, então a seleção não se perde.
+        // pointerdown fires before the field blurs, so the selection is not lost.
+        option.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            closeSearchSuggestions();
+            void openDetail(item);
+        });
+        fragment.append(option);
+    }
+    searchSuggestions.replaceChildren(fragment);
+    searchSuggestions.hidden = false;
+}
+
+searchInput.addEventListener("focus", renderSearchSuggestions);
+
+searchInput.addEventListener("blur", () => {
+    // Aguarda o clique na sugestão antes de fechar / Wait for a suggestion click before closing.
+    window.setTimeout(closeSearchSuggestions, 150);
+});
+
+// Enter fecha as sugestões e vai direto para os resultados ou para a página do artista.
+// Enter closes the suggestions and goes straight to the results view or the artist page.
+searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closeSearchSuggestions();
+        return;
+    }
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    const query = searchInput.value.trim();
+    closeSearchSuggestions();
+    if (query.length < 2) {
+        return;
+    }
+    window.clearTimeout(searchDebounce);
+    void openSearchResults(query);
+});
+
+// Abre a vista de resultados; com um artista de nome exato, abre a página dele.
+// Open the results view; with an exact artist name, open that artist's page instead.
+async function openSearchResults(query, { history = true } = {}) {
+    if (!detailView.hidden || !newsView.hidden) {
+        currentDetail = null;
+        detailView.hidden = true;
+        newsView.hidden = true;
+        document.querySelector(".home-view").hidden = false;
+    }
+    if (searchInput.value.trim() !== query) {
+        // Restaura a consulta ao voltar/avançar no histórico / Restore the query on back/forward.
+        searchInput.value = query;
+        updateLibraryVisibility();
+        updateHomeVisibility();
+    }
+    const results = await searchMusicProviders(query);
+    if (!results) {
+        // Outra busca assumiu o controle / Another search took control.
+        return;
+    }
+    const normalizedQuery = query.toLocaleLowerCase("pt-BR");
+    // Uma faixa com o título da busca é o destino mais provável do que um artista homônimo obscuro.
+    // A track titled like the query beats an obscure same-named artist as the intended destination.
+    const trackTitleMatches = results.some((item) =>
+        item.kind === "track"
+        && String(item.title || "").trim().toLocaleLowerCase("pt-BR").startsWith(normalizedQuery)
+    );
+    const artistMatch = trackTitleMatches ? null : results.find((item) =>
+        item.kind === "artist"
+        && String(item.title || "").trim().toLocaleLowerCase("pt-BR") === normalizedQuery
+    );
+    closeLibraryDrawerIfOpen();
+    if (artistMatch) {
+        await openDetail(artistMatch, { history });
+        return;
+    }
+    if (history && window.history.state?.search !== query) {
+        window.history.pushState({ search: query }, "", `#search/${encodeURIComponent(query)}`);
+    }
+    updateHomeVisibility();
+    if (!apiSearchSection.hidden) {
+        apiSearchSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
 
 document.querySelector(".library-search").addEventListener("click", () => searchInput.focus());
 
@@ -2453,7 +2541,8 @@ document.querySelector(".sort-button").addEventListener("click", (event) => {
 });
 
 document.querySelector(".import-card__close").addEventListener("click", () => {
-    document.querySelector(".import-card").hidden = true;
+    importCardDismissed = true;
+    applyLocalFileVisibility();
 });
 
 // No celular a biblioteca vira uma gaveta; no desktop ela apenas recolhe para uma faixa estreita.
@@ -2529,38 +2618,325 @@ document.querySelector(".app-dialog__form").addEventListener("submit", (event) =
 
 document.querySelector(".app-dialog__close").addEventListener("click", () => dialog.close());
 
-// Salva localmente o Client ID público; o verificador privado do OAuth permanece restrito à aba.
-// Save the public Spotify Client ID locally; the private OAuth verifier remains tab-scoped.
-document.querySelector(".api-settings-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const clientId = spotifyClientIdInput.value.trim();
+// ===== Configurações locais / Local settings =====
+
+// Formata bytes com uma casa decimal no padrão brasileiro.
+// Format bytes with one decimal in the Brazilian number style.
+function formatStorageSize(bytes) {
+    const value = Math.max(0, Number(bytes) || 0);
+    if (value < 1024) {
+        return `${Math.round(value)} B`;
+    }
+    if (value < 1024 * 1024) {
+        return `${(value / 1024).toFixed(1).replace(".", ",")} kB`;
+    }
+    return `${(value / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
+function setSettingsStatus(message) {
+    if (settingsStatus) {
+        settingsStatus.textContent = message;
+    }
+}
+
+// Soma o tamanho real dos áudios guardados no Cache API do offline.
+// Sum the real size of the audio blobs stored in the offline Cache API.
+async function measureOfflineDownloads() {
+    if (typeof caches === "undefined") {
+        return { count: 0, bytes: 0, supported: false };
+    }
     try {
-        if (clientId) {
-            localStorage.setItem(storageKeys.clientId, clientId);
-            localStorage.removeItem(storageKeys.legacyClientId);
-        } else {
-            localStorage.removeItem(storageKeys.clientId);
-            localStorage.removeItem(storageKeys.legacyClientId);
+        const offline = await import("./offline.mjs");
+        const cache = await caches.open(offline.CACHE_NAME);
+        const requests = await cache.keys();
+        let bytes = 0;
+        for (const request of requests) {
+            const response = await cache.match(request);
+            if (response) {
+                bytes += (await response.clone().blob()).size || 0;
+            }
         }
-        spotifyClientId = clientId;
-        document.querySelector(".api-settings-status").textContent = "Configuração salva neste navegador.";
-        apiSettingsDialog.close();
+        return { count: requests.length, bytes, supported: true };
     } catch (error) {
-        console.error("Could not save API configuration.", error);
-        document.querySelector(".api-settings-status").textContent = "Não foi possível salvar a configuração neste navegador.";
+        console.warn("Could not measure the offline downloads.", error);
+        return { count: 0, bytes: 0, supported: false };
     }
-});
+}
 
-document.querySelector(".api-settings-connect").addEventListener("click", async () => {
+// Mede o localStorage somando chaves e valores em UTF-16, como o navegador faz.
+// Measure localStorage by summing keys and values in UTF-16, as the browser accounts for it.
+function measureLocalStorageBytes() {
+    let bytes = 0;
     try {
-        await connectSpotify();
+        for (let index = 0; index < localStorage.length; index += 1) {
+            const key = localStorage.key(index) || "";
+            const value = localStorage.getItem(key) || "";
+            bytes += (key.length + value.length) * 2;
+        }
     } catch (error) {
-        console.error("Could not start Spotify authorization.", error);
-        document.querySelector(".api-settings-status").textContent = `Não foi possível iniciar a conexão: ${error.message}`;
+        console.warn("Could not measure localStorage.", error);
     }
-});
+    return bytes;
+}
 
-document.querySelector(".api-settings-close").addEventListener("click", () => apiSettingsDialog.close());
+// Usa a Storage API quando disponível e cai para o localStorage quando não.
+// Use the Storage API when available and fall back to localStorage when it is not.
+async function measureBrowserCacheBytes() {
+    let bytes = measureLocalStorageBytes();
+    try {
+        if (navigator.storage && typeof navigator.storage.estimate === "function") {
+            const estimate = await navigator.storage.estimate();
+            if (Number.isFinite(estimate.usage)) {
+                bytes = Math.max(bytes, estimate.usage);
+            }
+        }
+    } catch (error) {
+        console.warn("Could not read the storage estimate.", error);
+    }
+    return bytes;
+}
+
+async function refreshStorageSummary() {
+    if (!settingsDialog) {
+        return;
+    }
+    const downloadsLabel = settingsDialog.querySelector('[data-storage="downloads"]');
+    const browserLabel = settingsDialog.querySelector('[data-storage="browser"]');
+    if (downloadsLabel) {
+        downloadsLabel.textContent = "Calculando…";
+    }
+    if (browserLabel) {
+        browserLabel.textContent = "Calculando…";
+    }
+    const [downloads, browserBytes] = await Promise.all([
+        measureOfflineDownloads(),
+        measureBrowserCacheBytes()
+    ]);
+    if (downloadsLabel) {
+        downloadsLabel.textContent = downloads.supported
+            ? `${downloads.count} ${downloads.count === 1 ? "música" : "músicas"} • ${formatStorageSize(downloads.bytes)}`
+            : "Cache API indisponível neste navegador";
+    }
+    if (browserLabel) {
+        browserLabel.textContent = `Aproximadamente ${formatStorageSize(browserBytes)} neste navegador`;
+    }
+}
+
+// Remove apenas os áudios baixados, preservando biblioteca, perfil e preferências.
+// Remove only downloaded audio, preserving library, profile, and preferences.
+async function removeDownloadedAudio() {
+    if (typeof caches === "undefined") {
+        setSettingsStatus("Este navegador não oferece a Cache API.");
+        return;
+    }
+    try {
+        const offline = await import("./offline.mjs");
+        const cache = await caches.open(offline.CACHE_NAME);
+        const removedCount = (await cache.keys()).length;
+        await caches.delete(offline.CACHE_NAME);
+        await updateDownloadIndicators();
+        const message = removedCount
+            ? `${removedCount} ${removedCount === 1 ? "música baixada removida" : "músicas baixadas removidas"} do cache offline.`
+            : "Não havia músicas baixadas neste navegador.";
+        setSettingsStatus(message);
+        showToast(message);
+        void refreshStorageSummary();
+    } catch (error) {
+        console.error("Could not remove the downloaded audio.", error);
+        setSettingsStatus("Não foi possível remover as músicas baixadas.");
+    }
+}
+
+// Limpa contagens e dados temporários mantendo favoritos fixados e o perfil local.
+// Clear counters and temporary data while keeping pinned favorites and the local profile.
+function clearHistoryKeepingFavorites() {
+    try {
+        const stats = readLocalStats();
+        // Só entram no novo objeto os favoritos, com as contagens zeradas.
+        // Only favorites survive the reset, with their counters back to zero.
+        const kept = Object.fromEntries(
+            Object.entries(stats)
+                .filter(([, value]) => value && value.saved)
+                .map(([key, value]) => [key, { ...value, plays: 0, saves: 0, saved: true }])
+        );
+        localStorage.setItem(storageKeys.stats, JSON.stringify(kept));
+        localStorage.removeItem(storageKeys.legacyStats);
+        sessionStorage.clear();
+        // Chaves de versões antigas que guardavam credenciais; não são mais usadas.
+        // Legacy keys that stored credentials; no longer used.
+        localStorage.removeItem("open-music-hub:client-id");
+        localStorage.removeItem("clone-spotify:client-id");
+    } catch (error) {
+        console.error("Could not clear the local history.", error);
+        showToast("Não foi possível limpar o cache e o histórico.");
+        return;
+    }
+    renderLibrary();
+    if (currentDetail) {
+        detailMeta.querySelectorAll(".detail-meta__local-stat").forEach((stat) => stat.remove());
+        renderDetailStats(currentDetail);
+        syncCurrentDetailSaveState();
+    }
+    const message = "Cache e histórico limpos. Favoritos fixados e perfil preservados.";
+    setSettingsStatus(message);
+    showToast(message);
+    void refreshStorageSummary();
+}
+
+// Sincroniza o diálogo com as preferências carregadas do navegador.
+// Synchronize the dialog with the preferences loaded from the browser.
+function renderSettingsControls() {
+    if (!settingsDialog) {
+        return;
+    }
+    settingsDialog.querySelectorAll(".settings-switch[data-setting]").forEach((button) => {
+        button.setAttribute("aria-checked", String(Boolean(preferences[button.dataset.setting])));
+    });
+    settingsDialog.querySelectorAll("select[data-setting]").forEach((select) => {
+        select.value = preferences[select.dataset.setting];
+    });
+    settingsDialog.querySelectorAll("[data-density-option]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.densityOption === preferences.density));
+    });
+    const profileInput = settingsDialog.querySelector('[data-setting="profileName"]');
+    if (profileInput && document.activeElement !== profileInput) {
+        profileInput.value = preferences.profileName;
+    }
+    if (settingsLocalFileActions) {
+        settingsLocalFileActions.hidden = !preferences.showLocalFiles;
+    }
+}
+
+// Mostra ou oculta as entradas de arquivos locais conforme a preferência.
+// Show or hide the local file entry points according to the preference.
+function applyLocalFileVisibility() {
+    const importCard = document.querySelector(".import-card");
+    if (importCard) {
+        importCard.hidden = !preferences.showLocalFiles || importCardDismissed;
+    }
+    const coverButton = document.querySelector(".Pplay-music__cover");
+    if (coverButton) {
+        coverButton.disabled = !preferences.showLocalFiles;
+        coverButton.title = preferences.showLocalFiles
+            ? "Carregar músicas completas do dispositivo"
+            : "Ative “Mostrar arquivos locais” nas configurações";
+    }
+    fileInput.disabled = !preferences.showLocalFiles;
+}
+
+// Usa a inicial do nome local como avatar do botão do perfil.
+// Use the local name's initial as the profile button avatar.
+function applyProfileIdentity() {
+    if (!profileButton || !profileButtonContent) {
+        return;
+    }
+    const name = preferences.profileName.trim() || "Ouvinte";
+    const initial = (name.match(/[\p{L}\p{N}]/u) || ["O"])[0].toLocaleUpperCase("pt-BR");
+    profileButtonContent.textContent = initial;
+    profileButton.setAttribute("aria-label", `Perfil local: ${name}`);
+    profileButton.title = `Perfil local • ${name}`;
+}
+
+// Aplica densidade, arquivos locais e identidade do perfil em tempo real.
+// Apply density, local files, and profile identity in real time.
+function applyPreferences() {
+    document.documentElement.dataset.density = preferences.density;
+    document.documentElement.dataset.libraryDensity = preferences.compactLibrary ? "compact" : "comfortable";
+    applyLocalFileVisibility();
+    applyProfileIdentity();
+    renderSettingsControls();
+}
+
+function openSettings(sectionId = "") {
+    if (!settingsDialog) {
+        return;
+    }
+    if (!settingsDialog.open) {
+        settingsDialog.showModal();
+    }
+    renderSettingsControls();
+    void refreshStorageSummary();
+    if (sectionId) {
+        const section = settingsDialog.querySelector(`#${sectionId}`);
+        if (section) {
+            section.scrollIntoView({ block: "start" });
+        }
+        if (sectionId === "settings-profile") {
+            settingsDialog.querySelector('[data-setting="profileName"]')?.focus({ preventScroll: true });
+        }
+    }
+}
+
+function closeSettings() {
+    if (settingsDialog?.open) {
+        settingsDialog.close();
+    }
+}
+
+if (settingsDialog) {
+    settingsDialog.querySelectorAll(".settings-switch[data-setting]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const key = button.dataset.setting;
+            const next = !preferences[key];
+            setPreference(key, next);
+            if (key === "showLocalFiles") {
+                setSettingsStatus(next
+                    ? "Arquivos locais liberados: use “Escolher arquivos do dispositivo” ou o botão da capa."
+                    : "Arquivos locais ocultados.");
+            }
+        });
+    });
+
+    settingsDialog.querySelectorAll("select[data-setting]").forEach((select) => {
+        select.addEventListener("change", () => {
+            setPreference(select.dataset.setting, select.value);
+            setSettingsStatus(`Qualidade de áudio: ${select.selectedOptions[0]?.textContent || select.value}.`);
+        });
+    });
+
+    settingsDialog.querySelectorAll("[data-density-option]").forEach((button) => {
+        button.addEventListener("click", () => {
+            setPreference("density", button.dataset.densityOption);
+            setSettingsStatus(`Densidade do layout: ${button.textContent.trim()}.`);
+        });
+    });
+
+    // O nome é salvo a cada tecla, direto no navegador.
+    // The name is saved on every keystroke, right into the browser.
+    settingsDialog.querySelector('[data-setting="profileName"]')?.addEventListener("input", (event) => {
+        preferences = { ...preferences, profileName: event.currentTarget.value.slice(0, 40) };
+        savePreferences();
+        applyProfileIdentity();
+    });
+
+    settingsDialog.querySelectorAll("[data-settings-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            switch (button.dataset.settingsAction) {
+                case "remove-downloads":
+                    await removeDownloadedAudio();
+                    break;
+                case "clear-history":
+                    clearHistoryKeepingFavorites();
+                    break;
+                case "pick-files":
+                    if (preferences.showLocalFiles) {
+                        fileInput.click();
+                    }
+                    break;
+            }
+        });
+    });
+
+    settingsDialog.querySelector("[data-settings-close]")?.addEventListener("click", closeSettings);
+    // Clique no fundo (backdrop) fecha o diálogo sem salvar nada além do que já foi aplicado.
+    // Clicking the backdrop closes the dialog; every change is already applied.
+    settingsDialog.addEventListener("click", (event) => {
+        if (event.target === settingsDialog) {
+            closeSettings();
+        }
+    });
+    settingsDialog.addEventListener("close", () => setSettingsStatus(""));
+}
 
 document.querySelector(".detail-back").addEventListener("click", () => {
     if (window.history.state?.detail) {
@@ -2678,28 +3054,484 @@ document.querySelector(".credits-more").addEventListener("click", (event) => {
     event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
 });
 
-document.querySelector(".close-now-playing").addEventListener("click", () => {
+// Oculta/mostra o painel "tocando agora" com uma classe, mantendo o layout responsivo válido.
+// Hide/show the now-playing panel with a class so the responsive layout stays valid.
+function hideNowPlayingPanel() {
     nowPlayingPanel.hidden = true;
     document.querySelector(".restore-now-playing").hidden = false;
-    workspace.style.gridTemplateColumns = "minmax(245px, 21%) minmax(360px, 1fr)";
-});
+    workspace.classList.add("is-now-playing-hidden");
+    workspace.style.gridTemplateColumns = "";
+}
 
-document.querySelector(".restore-now-playing").addEventListener("click", () => {
+function showNowPlayingPanel() {
     nowPlayingPanel.hidden = false;
     document.querySelector(".restore-now-playing").hidden = true;
+    workspace.classList.remove("is-now-playing-hidden");
     workspace.style.gridTemplateColumns = "";
+}
+
+document.querySelector(".close-now-playing").addEventListener("click", hideNowPlayingPanel);
+document.querySelector(".restore-now-playing").addEventListener("click", showNowPlayingPanel);
+
+// ===== Vista "Em exibição" expandida e letras sincronizadas =====
+// Expanded "Now Playing" view and synced lyrics =====
+
+const expandedView = document.querySelector(".expanded-view");
+const expandedViewArt = document.querySelector(".expanded-view__art");
+const expandedViewTitle = document.querySelector(".expanded-view__title");
+const expandedViewArtist = document.querySelector(".expanded-view__artist");
+const expandedViewClock = document.querySelector(".expanded-view__clock");
+const expandNowPlayingButton = document.querySelector(".now-playing-panel__expand");
+const minimizeExpandedButton = document.querySelector(".expanded-view__minimize");
+const lyricsStatus = document.querySelector(".lyrics-synced__status");
+const lyricsLines = document.querySelector(".lyrics-synced__lines");
+
+const lyricsCache = new Map();
+let lyricsHelpers = null;
+let lyricsHelpersPromise = null;
+let lyricsRequestSerial = 0;
+let lyricsRenderedKey = "";
+let renderedLyricLines = [];
+let activeLyricIndex = -1;
+let expandedRenderedTrackKey = "";
+let savedMainViewScroll = 0;
+
+// O app.js é um script clássico, então o módulo de letras entra por import dinâmico.
+// app.js is a classic script, so the lyrics module is loaded with a dynamic import.
+function loadLyricsHelpers() {
+    if (!lyricsHelpersPromise) {
+        lyricsHelpersPromise = import("./lyrics.mjs").then((module) => {
+            lyricsHelpers = module;
+            syncLyricsHighlight({ force: true });
+            return module;
+        });
+    }
+    return lyricsHelpersPromise;
+}
+
+// Chave da faixa atual para casar cache de letra e vista expandida.
+// Current track key used to match the lyrics cache and the expanded view.
+function currentTrackLyricsKey() {
+    return `${currentTrack.provider || "local"}:${currentTrack.id || ""}:${currentTrack.title || ""}`;
+}
+
+// Gradiente de reserva quando a capa não pode ser lida (sem imagem ou sem CORS).
+// Fallback gradient when the cover cannot be read (no image or no CORS).
+function fallbackCoverGradient(seedText = "") {
+    let hash = 0;
+    for (const character of seedText) {
+        hash = (hash * 31 + character.charCodeAt(0)) % 360;
+    }
+    return `linear-gradient(160deg, hsl(${hash}, 42%, 27%) 0%, hsl(${(hash + 40) % 360}, 38%, 15%) 60%, #0c0c10 100%)`;
+}
+
+// Carrega a capa com CORS liberado, resolvendo por eventos e com limite de tempo.
+// decode() pode ficar pendente numa janela em segundo plano e deixaria o fundo sem cor.
+// Load the cover with CORS enabled, resolving through events with a time limit.
+// decode() can stay pending in a background window, leaving the background uncolored.
+function loadCoverImage(imageUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.decoding = "async";
+        let settled = false;
+        const finish = (error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            window.clearTimeout(timeoutId);
+            if (error || image.naturalWidth === 0) {
+                reject(error || new Error("Cover image failed to load."));
+                return;
+            }
+            resolve(image);
+        };
+        const timeoutId = window.setTimeout(() => finish(new Error("Cover image timed out.")), 8000);
+        image.addEventListener("load", () => finish(null));
+        image.addEventListener("error", () => finish(new Error("Cover image failed to load.")));
+        image.src = imageUrl;
+        if (image.complete) {
+            finish(null);
+        }
+    });
+}
+
+// Lê os pixels da capa e monta um gradiente dinâmico para o fundo expandido.
+// Read the cover pixels and build a dynamic gradient for the expanded background.
+async function buildCoverGradient(imageUrl, seedText = "") {
+    if (!imageUrl) {
+        return fallbackCoverGradient(seedText);
+    }
+    try {
+        const image = await loadCoverImage(imageUrl);
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0, 8, 8);
+        const pixels = context.getImageData(0, 0, 8, 8).data;
+        const halves = [
+            { r: 0, g: 0, b: 0, count: 0 },
+            { r: 0, g: 0, b: 0, count: 0 }
+        ];
+        for (let index = 0; index < pixels.length; index += 4) {
+            const y = Math.floor(index / 4 / 8);
+            const half = halves[y < 4 ? 0 : 1];
+            half.r += pixels[index];
+            half.g += pixels[index + 1];
+            half.b += pixels[index + 2];
+            half.count += 1;
+        }
+        // Converte a cor média em HSL e escurece a luminosidade: capas claras continuam
+        // legíveis com texto branco por cima.
+        // Convert the average color to HSL and force a dark lightness: light covers stay
+        // readable under white text.
+        const toColor = (half, lightness) => {
+            const red = half.r / half.count / 255;
+            const green = half.g / half.count / 255;
+            const blue = half.b / half.count / 255;
+            const max = Math.max(red, green, blue);
+            const min = Math.min(red, green, blue);
+            const delta = max - min;
+            const level = (max + min) / 2;
+            let hue = 0;
+            let saturation = 0;
+            if (delta > 0) {
+                saturation = delta / (1 - Math.abs(2 * level - 1));
+                if (max === red) {
+                    hue = ((green - blue) / delta) % 6;
+                } else if (max === green) {
+                    hue = (blue - red) / delta + 2;
+                } else {
+                    hue = (red - green) / delta + 4;
+                }
+                hue *= 60;
+                if (hue < 0) {
+                    hue += 360;
+                }
+            }
+            // Saturação mínima evita um fundo cinza morto; a luminosidade fica sempre baixa.
+            // A minimum saturation avoids a lifeless gray background; lightness always stays low.
+            const safeSaturation = Math.round(Math.min(72, Math.max(24, saturation * 100)));
+            return `hsl(${Math.round(hue)}, ${safeSaturation}%, ${lightness}%)`;
+        };
+        return `linear-gradient(160deg, ${toColor(halves[0], 22)} 0%, ${toColor(halves[1], 14)} 62%, #0c0c10 100%)`;
+    } catch (error) {
+        console.error("Could not read cover colors for the gradient.", error);
+        return fallbackCoverGradient(seedText);
+    }
+}
+
+function updateExpandedClock() {
+    if (!lyricsHelpers) {
+        return;
+    }
+    const elapsed = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    expandedViewClock.textContent = lyricsHelpers.formatarTempo(elapsed);
+}
+
+// Atualiza capa, título e gradiente dinâmico da vista expandida.
+// Update the expanded view cover, title, and dynamic gradient.
+async function refreshExpandedView() {
+    const trackKey = currentTrackLyricsKey();
+    expandedRenderedTrackKey = trackKey;
+    expandedViewTitle.textContent = currentTrack.title || title.textContent;
+    expandedViewArtist.textContent = currentTrack.artistName || artist.textContent;
+    const imageUrl = safeCoverUrl(currentTrack.image || currentTrack.artistImage);
+    expandedViewArt.classList.toggle("has-cover", Boolean(imageUrl));
+    expandedViewArt.style.backgroundImage = imageUrl ? `url("${imageUrl}")` : "";
+    const gradient = await buildCoverGradient(
+        imageUrl,
+        `${currentTrack.title || ""} ${currentTrack.artistName || ""}`
+    );
+    if (expandedRenderedTrackKey !== trackKey || expandedView.hidden) {
+        // A faixa mudou ou a vista fechou durante a leitura / Track changed or view closed while reading.
+        return;
+    }
+    expandedView.style.setProperty("--expanded-gradient", gradient);
+    updateExpandedClock();
+}
+
+// Abre a vista expandida na área central preservando o scroll anterior.
+// Open the expanded view in the center area, preserving the previous scroll position.
+function openExpandedView() {
+    if (!expandedView.hidden) {
+        return;
+    }
+    savedMainViewScroll = mainView.scrollTop;
+    expandedView.hidden = false;
+    document.body.classList.add("player-focus-mode");
+    expandNowPlayingButton.setAttribute("aria-expanded", "true");
+    expandNowPlayingButton.setAttribute("aria-label", "Minimizar em exibição");
+    expandNowPlayingButton.querySelector(".mdi").className = "mdi mdi-arrow-collapse";
+    mainView.scrollTo({ top: 0 });
+    void loadLyricsHelpers();
+    void refreshExpandedView();
+    void loadSyncedLyrics();
+}
+
+// Minimiza e restaura imediatamente o layout anterior de três colunas.
+// Minimize and immediately restore the previous three-column layout.
+function closeExpandedView() {
+    if (expandedView.hidden) {
+        return;
+    }
+    expandedView.hidden = true;
+    document.body.classList.remove("player-focus-mode");
+    expandNowPlayingButton.setAttribute("aria-expanded", "false");
+    expandNowPlayingButton.setAttribute("aria-label", "Expandir em exibição");
+    expandNowPlayingButton.querySelector(".mdi").className = "mdi mdi-arrow-expand";
+    mainView.scrollTo({ top: savedMainViewScroll });
+}
+
+function toggleExpandedView() {
+    if (expandedView.hidden) {
+        openExpandedView();
+    } else {
+        closeExpandedView();
+    }
+}
+
+expandNowPlayingButton.addEventListener("click", toggleExpandedView);
+minimizeExpandedButton.addEventListener("click", closeExpandedView);
+
+// Esc fecha a caixa de sugestões antes do modo expandido; diálogos fecham sozinhos.
+// Esc closes the suggestions box before the expanded mode; native dialogs close themselves.
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+        return;
+    }
+    if (dialog.open || settingsDialog?.open) {
+        return;
+    }
+    if (!searchSuggestions.hidden) {
+        closeSearchSuggestions();
+        return;
+    }
+    closeExpandedView();
 });
 
+// Carrega a letra da faixa: LRC sincronizado pelo LrcLib, com fallback para letra simples.
+// Load the track's lyrics: synced LRC through LrcLib, falling back to plain lyrics.
+async function loadSyncedLyrics({ force = false } = {}) {
+    const helpers = await loadLyricsHelpers();
+    const trackKey = currentTrackLyricsKey();
+    if (lyricsRenderedKey !== trackKey) {
+        // Troca de faixa limpa as linhas e o destaque antigos / Changing tracks clears old lines and highlight.
+        lyricsRenderedKey = "";
+        renderedLyricLines = [];
+        activeLyricIndex = -1;
+        lyricsLines.replaceChildren();
+    }
+    if (!force && lyricsRenderedKey === trackKey && renderedLyricLines.length > 0) {
+        return;
+    }
+    if (lyricsCache.has(trackKey)) {
+        renderLyrics(trackKey, lyricsCache.get(trackKey));
+        return;
+    }
+    const trackArtist = currentTrack.artistName;
+    const trackTitle = currentTrack.title;
+    if (!trackArtist || !trackTitle) {
+        lyricsStatus.textContent = "A letra precisa do nome do artista e da faixa.";
+        return;
+    }
+    const serial = ++lyricsRequestSerial;
+    lyricsStatus.textContent = "Buscando letras sincronizadas…";
+    try {
+        const payload = await fetchJson(API_CONFIG.providers.lyrics.syncedPath(trackArtist, trackTitle));
+        if (serial !== lyricsRequestSerial || trackKey !== currentTrackLyricsKey()) {
+            return;
+        }
+        const entry = payload.synced && payload.syncedLyrics
+            ? { synced: true, lines: helpers.parseLrc(payload.syncedLyrics) }
+            : { synced: false, lines: helpers.linhasDeTexto(payload.lyrics || "") };
+        if (entry.synced && entry.lines.length === 0) {
+            entry.synced = false;
+            entry.lines = helpers.linhasDeTexto(payload.lyrics || "");
+        }
+        lyricsCache.set(trackKey, entry);
+        renderLyrics(trackKey, entry);
+    } catch (error) {
+        if (serial !== lyricsRequestSerial) {
+            return;
+        }
+        console.error("Could not load lyrics.", error);
+        if (error.message === "Lyrics were not found for this track.") {
+            const miss = { synced: false, lines: [] };
+            lyricsCache.set(trackKey, miss);
+            renderLyrics(trackKey, miss);
+            return;
+        }
+        lyricsStatus.textContent = `Não foi possível carregar a letra: ${error.message}`;
+        lyricsLines.replaceChildren();
+        lyricsRenderedKey = "";
+        renderedLyricLines = [];
+        activeLyricIndex = -1;
+    }
+}
+
+// Renderiza as linhas; cada linha sincronizada mostra mm:ss e busca esse trecho ao clicar.
+// Render the lines; every synced line shows mm:ss and seeks to that timestamp on click.
+function renderLyrics(trackKey, entry) {
+    if (!lyricsHelpers) {
+        return;
+    }
+    lyricsRenderedKey = trackKey;
+    activeLyricIndex = -1;
+    const fragment = document.createDocumentFragment();
+    entry.lines.forEach((line, index) => {
+        const row = document.createElement(entry.synced ? "button" : "div");
+        row.className = "lyrics-synced__line";
+        if (entry.synced) {
+            row.type = "button";
+            const stamp = document.createElement("span");
+            stamp.className = "lyrics-synced__stamp";
+            stamp.textContent = lyricsHelpers.formatarTempo(line.time);
+            row.append(stamp);
+            row.addEventListener("click", () => {
+                audio.currentTime = line.time;
+            });
+        }
+        const text = document.createElement("span");
+        text.className = "lyrics-synced__text";
+        // textContent impede que a letra seja interpretada como HTML / textContent keeps lyrics out of HTML parsing.
+        text.textContent = line.text || " ";
+        row.append(text);
+        row.dataset.index = String(index);
+        fragment.append(row);
+    });
+    lyricsLines.replaceChildren(fragment);
+    renderedLyricLines = entry.lines;
+    lyricsStatus.textContent = entry.synced
+        ? "Letra sincronizada — toque em uma linha para pular para esse trecho."
+        : entry.lines.length > 0
+            ? "Esta letra não tem marcação de tempo; nenhuma linha é destacada."
+            : "Letra não encontrada para esta faixa.";
+    syncLyricsHighlight({ force: true });
+}
+
+// Centraliza a linha ativa na área de letras com scroll suave.
+// Center the active lyric line inside the lyrics area with smooth scrolling.
+function centerActiveLyricLine() {
+    const activeRow = lyricsLines.children[activeLyricIndex];
+    if (!activeRow || expandedView.hidden) {
+        return;
+    }
+    const target = Math.max(0, activeRow.offsetTop - lyricsLines.clientHeight / 2 + activeRow.offsetHeight / 2);
+    const startScroll = lyricsLines.scrollTop;
+    if (Math.abs(startScroll - target) < 4) {
+        return;
+    }
+    lyricsLines.scrollTo({ top: target, behavior: "smooth" });
+    // Se a rolagem suave for suprimida (aba oculta, movimento reduzido), salta direto.
+    // If smooth scrolling is suppressed (hidden tab, reduced motion), jump straight there.
+    window.setTimeout(() => {
+        if (Math.abs(lyricsLines.scrollTop - startScroll) < 4 && Math.abs(lyricsLines.scrollTop - target) > 4) {
+            lyricsLines.scrollTop = target;
+        }
+    }, 400);
+}
+
+// Destaque em tempo real: acompanha o currentTime, mostra o mm:ss e rola suavemente.
+// Real-time highlight: follows currentTime, shows mm:ss, and scrolls smoothly.
+function syncLyricsHighlight({ force = false } = {}) {
+    if (!lyricsHelpers) {
+        return;
+    }
+    const elapsed = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    updateExpandedClock();
+
+    const trackKey = currentTrackLyricsKey();
+    if (lyricsRenderedKey !== trackKey) {
+        // Nova faixa: recarrega letra e capa enquanto a vista estiver aberta.
+        // New track: reload lyrics and cover while the view stays open.
+        activeLyricIndex = -1;
+        if (!expandedView.hidden) {
+            if (expandedRenderedTrackKey !== trackKey && (currentTrack.title || currentTrack.artistName)) {
+                void refreshExpandedView();
+            }
+            if (currentTrack.title || currentTrack.artistName) {
+                void loadSyncedLyrics();
+            }
+        }
+        return;
+    }
+    if (renderedLyricLines.length === 0) {
+        return;
+    }
+
+    const rows = [...lyricsLines.children];
+    const index = lyricsHelpers.linhaAtiva(renderedLyricLines, elapsed);
+    if (force || index !== activeLyricIndex) {
+        const previousRow = rows[activeLyricIndex];
+        if (previousRow?.classList.contains("is-active")) {
+            previousRow.classList.remove("is-active");
+            const previousStamp = previousRow.querySelector(".lyrics-synced__stamp");
+            if (previousStamp) {
+                previousStamp.textContent = lyricsHelpers.formatarTempo(renderedLyricLines[activeLyricIndex]?.time ?? 0);
+            }
+        }
+        activeLyricIndex = index;
+        const activeRow = rows[index];
+        if (activeRow) {
+            activeRow.classList.add("is-active");
+            const stamp = activeRow.querySelector(".lyrics-synced__stamp");
+            if (stamp) {
+                // Segundos decorridos na própria linha de destaque / Elapsed seconds on the highlighted line.
+                stamp.textContent = lyricsHelpers.formatarTempo(elapsed);
+            }
+            // Scroll suave automático para a linha ativa / Smooth auto-scroll to the active line.
+            centerActiveLyricLine();
+        }
+        return;
+    }
+
+    // Mesma linha ativa: só os segundos decorridos mudam no destaque.
+    // Same active line: only the elapsed seconds change on the highlight.
+    const activeRow = rows[index];
+    if (activeRow?.classList.contains("is-active")) {
+        const stamp = activeRow.querySelector(".lyrics-synced__stamp");
+        if (stamp) {
+            stamp.textContent = lyricsHelpers.formatarTempo(elapsed);
+        }
+    }
+}
+
+audio.addEventListener("timeupdate", syncLyricsHighlight);
+audio.addEventListener("seeked", syncLyricsHighlight);
+
+// Redimensionar a janela muda a altura das linhas: recentraliza a linha ativa.
+// Resizing the window changes line heights: re-center the active line.
+let lyricsRecenterTimeout;
+window.addEventListener("resize", () => {
+    window.clearTimeout(lyricsRecenterTimeout);
+    lyricsRecenterTimeout = window.setTimeout(centerActiveLyricLine, 220);
+});
+
+// O botão Letra do player abre a vista expandida com a letra sincronizada.
+// The player's Letra button opens the expanded view with synced lyrics.
 document.querySelector(".music-player__extras [aria-label='Letra']").addEventListener("click", () => {
-    void showLyrics();
+    // No celular o player em tela cheia cobre o centro: recolhe antes de abrir a letra.
+    // On phones the full-screen player covers the center: collapse it before opening the lyrics.
+    const musicPlayer = document.querySelector(".music-player");
+    if (musicPlayer.classList.contains("is-expanded")) {
+        musicPlayer.classList.remove("is-expanded");
+        document.body.classList.remove("player-expanded");
+        const button = document.querySelector(".music-player__expand");
+        button.setAttribute("aria-expanded", "false");
+        button.setAttribute("aria-label", "Expandir player");
+        button.querySelector(".mdi").className = "mdi mdi-chevron-up";
+    }
+    openExpandedView();
 });
 
 document.querySelector(".music-player__extras [aria-label='Fila']").addEventListener("click", () => {
     showDialog("Fila", `Tocando agora: ${title.textContent}. Carregue outra faixa pelo botão de música para adicioná-la à fila.`);
 });
 
-document.querySelector(".music-player__extras [aria-label='Conectar a um dispositivo']").addEventListener("click", () => {
-    showDialog("Conectar a um dispositivo", "A reprodução acontece neste navegador. A seleção de dispositivos Spotify não está disponível.");
+document.querySelector(".music-player__extras [aria-label='Conectar a um dispositivo']").addEventListener("click", () => {            showDialog("Conectar a um dispositivo", "A reprodução acontece neste navegador; não há envio de áudio para alto-falantes externos nem necessidade de login.");
 });
 
 // Download e escuta offline da faixa atual (player inferior e página de detalhes).
@@ -2769,7 +3601,9 @@ document.querySelectorAll("[data-action]").forEach((button) => {
                 showDialog("Atividade dos amigos", "A atividade de amigos não está conectada nesta demonstração.");
                 break;
             case "profile":
-                showDialog("Perfil", "Perfil local • nenhuma conta Spotify conectada.");
+                // O perfil é local: abre direto a seção editável do diálogo de configurações.
+                // The profile is local: open the editable section of the settings dialog.
+                openSettings("settings-profile");
                 break;
             case "queue":
                 showDialog("Tocando agora", `Faixa atual: ${title.textContent}.`);
@@ -2777,9 +3611,8 @@ document.querySelectorAll("[data-action]").forEach((button) => {
             case "track-options":
                 showDialog("Opções da faixa", "Use o botão + para salvar a faixa ou os controles do player para reproduzir, repetir e ajustar o volume.");
                 break;
-            case "api-settings":
-                document.querySelector(".api-settings-status").textContent = "";
-                apiSettingsDialog.showModal();
+            case "settings":
+                openSettings();
                 break;
         }
     });
@@ -2813,10 +3646,16 @@ dialog.addEventListener("close", () => {
 });
 
 window.addEventListener("popstate", (event) => {
+    // Voltar/avançar sempre sai do modo expandido antes de trocar de página.
+    // Back/forward always leaves the expanded mode before switching pages.
+    closeExpandedView();
     if (event.state?.detail) {
         openDetail(event.state.detail, { history: false });
     } else if (event.state?.news) {
         showNewsView({ history: false });
+    } else if (typeof event.state?.search === "string") {
+        // Restaura a vista de resultados ao voltar/avançar / Restore the results view on back/forward.
+        void openSearchResults(event.state.search, { history: false });
     } else {
         showHomeView();
     }
@@ -2839,7 +3678,20 @@ updateProgress();
 updateLibraryVisibility();
 updateHomeVisibility();
 renderLibrary();
+// Densidade, arquivos locais e nome do perfil são aplicados antes da primeira interação.
+// Density, local files, and the profile name are applied before the first interaction.
+applyPreferences();
 loadApiConfiguration();
 // Carrega as "Tendências do Momento" já na abertura inicial da tela.
 // Load the "Tendências do Momento" row as soon as the home screen opens.
 void loadTrends();
+
+// Offline-first: registra o Service Worker (cache do shell); o áudio já usa a Cache API.
+// Offline-first: register the Service Worker (shell cache); audio already uses the Cache API.
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch((error) => {
+            console.error("Service Worker registration failed.", error);
+        });
+    });
+}

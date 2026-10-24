@@ -1007,88 +1007,294 @@ input:focus-visible {
 	white-space: pre-wrap;
 }
 
-/* O diálogo da API armazena neste navegador somente o Client ID público do Spotify.
-   The API dialog stores only a public Spotify Client ID in this browser. */
-.api-settings-dialog {
-	width: min(520px, calc(100vw - 36px));
+/* Diálogo de configurações: dados locais, sem chaves ou credenciais externas.
+   Settings dialog: local data only, without keys or external credentials. */
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
 	padding: 0;
-	border: 1px solid #3d3d3d;
-	border-radius: 12px;
-	background: #242424;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.settings-dialog {
+	width: min(720px, calc(100vw - 32px));
+	max-height: min(86vh, 780px);
+	padding: 0;
+	overflow: hidden;
+	border: 1px solid #3a3a3a;
+	border-radius: 14px;
+	background: #1c1c1c;
 	color: #fff;
-	box-shadow: 0 18px 70px #000b;
+	box-shadow: 0 24px 80px #000c;
 }
 
-.api-settings-dialog::backdrop {
+.settings-dialog::backdrop {
 	background: #000b;
-	backdrop-filter: blur(3px);
+	backdrop-filter: blur(4px);
 }
 
-.api-settings-form {
-	position: relative;
-	display: grid;
-	gap: 12px;
-	padding: 24px;
+.settings-dialog[open] {
+	display: flex;
+	flex-direction: column;
 }
 
-.api-settings-form h2 {
-	margin: 0 36px 0 0;
-	font-size: 21px;
+.settings-dialog__header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 22px 24px 16px;
+	border-bottom: 1px solid #2e2e2e;
 }
 
-.api-settings-form p {
+.settings-dialog__header h2 {
+	margin: 0 0 4px;
+	font-size: 24px;
+	letter-spacing: -0.4px;
+}
+
+.settings-dialog__header p {
 	margin: 0;
-	color: #d0d0d0;
+	color: #b3b3b3;
+	font-size: 12.5px;
+	line-height: 1.45;
+}
+
+.settings-dialog__close {
+	flex: 0 0 auto;
+}
+
+.settings-dialog__body {
+	display: flex;
+	flex-direction: column;
+	gap: 26px;
+	padding: 20px 24px 24px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.settings-section {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.settings-section h3 {
+	margin: 0 0 6px;
+	color: #b3b3b3;
+	font-size: 11.5px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.settings-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20px;
+	padding: 11px 0;
+	border-bottom: 1px solid #282828;
+}
+
+.settings-row:last-child {
+	border-bottom: 0;
+}
+
+.settings-row--stacked {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 10px;
+}
+
+.settings-row__text {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.settings-row__text strong {
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.settings-row__hint {
+	color: #b3b3b3;
+	font-size: 12.5px;
+	line-height: 1.45;
+}
+
+.settings-button {
+	flex: 0 0 auto;
+	padding: 8px 16px;
+	border: 1px solid #727272;
+	border-radius: 999px;
+	background: transparent;
+	color: #fff;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12.5px;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.settings-button:hover {
+	border-color: #fff;
+}
+
+.settings-button--danger {
+	border-color: #8f4b47;
+	color: #ff9d95;
+}
+
+.settings-button--danger:hover {
+	border-color: #ff9d95;
+}
+
+.settings-switch {
+	position: relative;
+	flex: 0 0 auto;
+	width: 46px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 999px;
+	background: #4d4d4d;
+	cursor: pointer;
+	transition: background-color 160ms ease;
+}
+
+.settings-switch[aria-checked="true"] {
+	background: #1ed760;
+}
+
+.settings-switch__thumb {
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: #fff;
+	transition: transform 160ms ease;
+}
+
+.settings-switch[aria-checked="true"] .settings-switch__thumb {
+	transform: translateX(20px);
+}
+
+.settings-switch:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 2px;
+}
+
+.settings-segmented {
+	display: inline-flex;
+	flex: 0 0 auto;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 999px;
+	background: #2a2a2a;
+}
+
+.settings-segmented button {
+	padding: 7px 14px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: #d6d6d6;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12.5px;
+	font-weight: 600;
+}
+
+.settings-segmented button[aria-pressed="true"] {
+	background: #fff;
+	color: #101010;
+}
+
+.settings-field {
+	display: inline-flex;
+	align-items: center;
+}
+
+.settings-field select,
+.settings-field input {
+	padding: 9px 12px;
+	border: 1px solid #6d6d6d;
+	border-radius: 6px;
+	background: #121212;
+	color: #fff;
+	font: inherit;
 	font-size: 13px;
+}
+
+.settings-field select {
+	min-width: 132px;
+}
+
+.settings-field--block {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	width: 100%;
+}
+
+.settings-field--block span {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.settings-field--block input {
+	width: 100%;
+	padding: 11px 12px;
+}
+
+.settings-field select:focus-visible,
+.settings-field input:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 1px;
+}
+
+.settings-section__note {
+	margin: 6px 0 0;
+	color: #9a9a9a;
+	font-size: 12px;
 	line-height: 1.5;
 }
 
-.api-settings-form label {
-	font-size: 13px;
-	font-weight: 700;
-}
-
-.api-settings-form input {
-	width: 100%;
-	padding: 11px 12px;
-	border: 1px solid #777;
-	border-radius: 5px;
-	background: #121212;
-	color: #fff;
-}
-
-.api-settings-close {
-	position: absolute;
-	top: 12px;
-	right: 12px;
-}
-
-.api-settings-actions {
+.settings-dialog__footer {
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: flex-end;
+	align-items: center;
+	justify-content: space-between;
 	gap: 10px;
-	margin-top: 4px;
+	padding: 14px 24px;
+	border-top: 1px solid #2e2e2e;
+	background: #181818;
+	font-size: 12px;
 }
 
-.api-settings-actions button {
-	padding: 9px 14px;
-	border: 0;
-	border-radius: 20px;
-	background: #fff;
-	color: #111;
-	cursor: pointer;
-	font-size: 13px;
-	font-weight: 700;
+.settings-dialog__footer a {
+	color: #b3b3b3;
 }
 
-.api-settings-actions .api-settings-save {
-	border: 1px solid #777;
-	background: transparent;
+.settings-dialog__footer a:hover {
 	color: #fff;
 }
 
-.api-settings-status:empty {
+.settings-dialog__status {
+	color: #1ed760;
+}
+
+.settings-dialog__status:empty {
 	display: none;
 }
 
@@ -2242,7 +2448,7 @@ input:focus-visible {
 		display: none;
 	}
 
-	.topbar__actions > .api-settings-button {
+	.topbar__actions > .settings-button {
 		display: grid;
 	}
 
@@ -2386,10 +2592,6 @@ input:focus-visible {
 	.detail-title {
 		font-size: clamp(30px, 10vw, 42px);
 		letter-spacing: -1px;
-	}
-
-	.api-settings-form {
-		padding: 20px;
 	}
 
 	.featured-banner__content {
@@ -2644,5 +2846,498 @@ body.player-expanded {
 		justify-content: center;
 		gap: 12px;
 		margin-top: 12px;
+	}
+}
+
+/* ====== Busca: caixa de sugestões sobreposta ao campo / Search: suggestions box over the field ====== */
+.search-box {
+	position: relative;
+}
+
+.search-suggestions {
+	position: absolute;
+	top: calc(100% + 8px);
+	left: 0;
+	right: 0;
+	z-index: 60;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px;
+	border: 1px solid #3a3a3a;
+	border-radius: 10px;
+	background: #1b1b1b;
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+}
+
+.search-suggestions[hidden] {
+	display: none !important;
+}
+
+.search-suggestions__item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: #fff;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.search-suggestions__item:hover,
+.search-suggestions__item:focus-visible {
+	background: #2a2a2a;
+	outline: none;
+}
+
+.search-suggestions__labels {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.search-suggestions__labels strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.search-suggestions__labels small {
+	color: var(--text-secondary);
+}
+
+/* ====== Vista "Em exibição" expandida na área central / Expanded "Now Playing" view in the center area ======
+   No desktop a biblioteca recolhe e o centro ganha a largura toda; no celular a vista
+   apenas substitui o conteúdo central. Minimizar restaura o layout de três colunas na hora.
+   On desktop the library collapses and the center takes the full width; on phones the view
+   just replaces the center content. Minimizing restores the three-column layout at once. */
+@media (min-width: 1025px) {
+	body.player-focus-mode .workspace {
+		grid-template-columns: minmax(0, 1fr) minmax(270px, 22%);
+	}
+
+	body.player-focus-mode .library-panel {
+		display: none;
+	}
+}
+
+body.player-focus-mode .main-view {
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+	overflow: hidden;
+}
+
+body.player-focus-mode .main-view > *:not(.expanded-view) {
+	display: none !important;
+}
+
+.expanded-view {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	padding: 22px clamp(16px, 4vw, 48px) 28px;
+	background: var(--expanded-gradient, linear-gradient(160deg, #23252d 0%, #14151b 60%, #0c0c10 100%));
+	border-radius: 12px;
+	animation: expanded-view-in 240ms ease;
+}
+
+body.player-focus-mode .expanded-view {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: #6b6b6b transparent;
+}
+
+.expanded-view[hidden] {
+	display: none !important;
+}
+
+@keyframes expanded-view-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.expanded-view__bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.expanded-view__eyebrow {
+	margin: 0;
+	color: rgba(255, 255, 255, 0.72);
+	font-size: 12px;
+	letter-spacing: 0.22em;
+}
+
+.expanded-view__minimize {
+	font-size: 22px;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+.expanded-view__stage {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: clamp(18px, 4vw, 42px);
+}
+
+.expanded-view__art {
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: min(42vw, 340px);
+	aspect-ratio: 1;
+	border-radius: 16px;
+	background-color: rgba(0, 0, 0, 0.35);
+	background-size: cover;
+	background-position: center;
+	box-shadow: 0 26px 60px rgba(0, 0, 0, 0.5);
+	overflow: hidden;
+	color: rgba(255, 255, 255, 0.35);
+	font-size: 96px;
+}
+
+.expanded-view__art.has-cover .mdi {
+	display: none;
+}
+
+.expanded-view__meta {
+	flex: 1 1 240px;
+	min-width: 0;
+}
+
+.expanded-view__title {
+	margin: 0 0 6px;
+	font-size: clamp(26px, 4vw, 52px);
+	line-height: 1.05;
+	overflow-wrap: anywhere;
+}
+
+.expanded-view__artist {
+	margin: 0 0 14px;
+	color: rgba(255, 255, 255, 0.75);
+	font-size: clamp(15px, 2vw, 20px);
+}
+
+.expanded-view__elapsed {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	padding: 6px 12px;
+	border-radius: 999px;
+	background: rgba(0, 0, 0, 0.4);
+	font-size: 14px;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ====== Letra sincronizada com o tempo da faixa / Lyrics synced with track time ====== */
+.lyrics-synced {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	flex: 1 1 auto;
+	min-height: 220px;
+	padding: 16px;
+	border-radius: 14px;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+.lyrics-synced__status {
+	margin: 0;
+	color: rgba(255, 255, 255, 0.7);
+	font-size: 13px;
+}
+
+.lyrics-synced__lines {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	flex: 1 1 auto;
+	min-height: 160px;
+	max-height: 46vh;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: #6b6b6b transparent;
+}
+
+.lyrics-synced__line {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	width: 100%;
+	padding: 6px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: rgba(255, 255, 255, 0.55);
+	font-size: clamp(15px, 2vw, 19px);
+	line-height: 1.45;
+	text-align: left;
+	transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.lyrics-synced__line.is-active {
+	background: rgba(255, 255, 255, 0.12);
+	color: #fff;
+	font-weight: 600;
+	transform: translateX(4px);
+}
+
+.lyrics-synced__text {
+	/* min-width: 0 permite quebrar linhas longas dentro da flexbox / lets long lines wrap inside flexbox */
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.lyrics-synced__stamp {
+	flex: 0 0 auto;
+	min-width: 5ch;
+	color: rgba(255, 255, 255, 0.55);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.lyrics-synced__line.is-active .lyrics-synced__stamp {
+	color: var(--accent-green, #1ed760);
+}
+
+button.lyrics-synced__line {
+	cursor: pointer;
+}
+
+button.lyrics-synced__line:hover {
+	background: rgba(255, 255, 255, 0.08);
+	color: #fff;
+}
+
+@media (max-width: 760px) {
+	.expanded-view__stage {
+		justify-content: center;
+		text-align: center;
+	}
+
+	.expanded-view__art {
+		width: min(70vw, 300px);
+	}
+
+	.expanded-view__meta {
+		flex-basis: 100%;
+	}
+
+	.lyrics-synced__lines {
+		max-height: 40vh;
+	}
+}
+
+/* ==========================================================================
+   Densidade do layout e biblioteca compacta
+   Layout density and compact library
+   ========================================================================== */
+
+/* Os três níveis ajustam variáveis consumidas pelo shell, pela lateral e pelos cartões.
+   The three levels adjust variables consumed by the shell, sidebar, and cards. */
+:root {
+	--density-gap: 8px;
+	--density-panel-pad: 16px;
+	--density-panel-pad-x: 14px;
+	--density-card-gap: 12px;
+	--density-item-pad-y: 5px;
+	--density-main-pad-y: 16px;
+	--density-main-pad-x: 20px;
+}
+
+:root[data-density="dense"] {
+	--density-gap: 4px;
+	--density-panel-pad: 10px;
+	--density-panel-pad-x: 10px;
+	--density-card-gap: 7px;
+	--density-item-pad-y: 2px;
+	--density-main-pad-y: 10px;
+	--density-main-pad-x: 14px;
+}
+
+:root[data-density="wide"] {
+	--density-gap: 14px;
+	--density-panel-pad: 24px;
+	--density-panel-pad-x: 20px;
+	--density-card-gap: 18px;
+	--density-item-pad-y: 9px;
+	--density-main-pad-y: 24px;
+	--density-main-pad-x: 28px;
+}
+
+.workspace {
+	gap: var(--density-gap);
+}
+
+.library-panel {
+	padding: var(--density-panel-pad) var(--density-panel-pad-x) 10px;
+}
+
+.main-view {
+	padding: var(--density-main-pad-y) var(--density-main-pad-x) 30px;
+}
+
+.library-item {
+	padding-top: var(--density-item-pad-y);
+	padding-bottom: var(--density-item-pad-y);
+}
+
+.quick-picks,
+.api-search-grid,
+.trends-grid {
+	gap: var(--density-card-gap);
+}
+
+/* Modo compacto da lateral: mais itens visíveis sem perder a legibilidade.
+   Compact sidebar mode: more visible items without losing readability. */
+:root[data-library-density="compact"] .library-list {
+	gap: 0;
+}
+
+:root[data-library-density="compact"] .library-item {
+	padding-top: 2px;
+	padding-bottom: 2px;
+}
+
+:root[data-library-density="compact"] .library-item__open {
+	gap: 8px;
+}
+
+:root[data-library-density="compact"] .library-item__art {
+	flex-basis: 34px;
+	width: 34px;
+	height: 34px;
+	font-size: 17px;
+}
+
+:root[data-library-density="compact"] .library-item__open > span {
+	gap: 1px;
+}
+
+:root[data-library-density="compact"] .library-item small {
+	font-size: 10.5px;
+}
+
+:root[data-library-density="compact"] .library-panel__tools {
+	margin-bottom: 2px;
+}
+
+/* O painel "tocando agora" oculto devolve a largura sem quebrar o layout responsivo.
+   The hidden now-playing panel gives the width back without breaking the responsive layout. */
+/* A expansão da biblioteca continua tendo prioridade sobre o painel oculto.
+   Library expansion still takes priority over the hidden panel. */
+.workspace.is-now-playing-hidden:not(.is-library-expanded) {
+	grid-template-columns: minmax(245px, 21%) minmax(360px, 1fr);
+}
+
+@media (max-width: 1120px) {
+	.workspace.is-now-playing-hidden:not(.is-library-expanded) {
+		grid-template-columns: minmax(220px, 27%) minmax(360px, 1fr);
+	}
+}
+
+@media (max-width: 760px) {
+	.workspace.is-now-playing-hidden:not(.is-library-expanded) {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* ==========================================================================
+   Configurações em telas pequenas: folha inferior em tela cheia
+   Settings on small screens: full-width bottom sheet
+   ========================================================================== */
+@media (max-width: 760px) {
+	.settings-dialog {
+		width: 100%;
+		max-width: 100%;
+		max-height: 94dvh;
+		margin: auto 0 0;
+		border-radius: 18px 18px 0 0;
+		border-bottom: 0;
+	}
+
+	.settings-dialog__header {
+		padding: 18px 16px 12px;
+	}
+
+	.settings-dialog__header h2 {
+		font-size: 21px;
+	}
+
+	.settings-dialog__body {
+		gap: 20px;
+		padding: 14px 16px 20px;
+	}
+
+	.settings-dialog__footer {
+		padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+	}
+
+	.settings-row {
+		gap: 12px;
+	}
+
+	.settings-row__text strong {
+		font-size: 13.5px;
+	}
+
+	.settings-row__hint {
+		font-size: 12px;
+	}
+
+	/* Controles largos ocupam a linha inteira em vez de comprimir o texto.
+	   Wide controls take the full row instead of squeezing the text. */
+	.settings-row:has(.settings-button),
+	.settings-row:has(.settings-segmented),
+	.settings-row:has(.settings-field select) {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.settings-button {
+		text-align: center;
+		white-space: normal;
+	}
+
+	.settings-segmented {
+		justify-content: space-between;
+	}
+
+	.settings-segmented button {
+		flex: 1 1 0;
+		padding: 8px 6px;
+	}
+
+	.settings-field select {
+		width: 100%;
+	}
+
+	.library-panel {
+		padding: var(--density-panel-pad) 12px 10px;
+	}
+
+	.main-view {
+		padding: var(--density-main-pad-y) 12px 24px;
 	}
 }
