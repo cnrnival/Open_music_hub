@@ -136,6 +136,7 @@ function renderRecentsSection() {
 
 const detailView = document.querySelector(".detail-view");
 const newsView = document.querySelector(".news-view");
+const profileView = document.querySelector(".profile-view");
 const newsStatus = document.querySelector(".news-status");
 const newsGrid = document.querySelector(".news-grid");
 const detailHeaderArt = document.querySelector(".detail-header__art");
@@ -847,6 +848,9 @@ async function openDetail(item, { history = true } = {}) {
     syncCurrentDetailSaveState();
     document.querySelector(".home-view").hidden = true;
     newsView.hidden = true;
+    if (profileView) {
+        profileView.hidden = true;
+    }
     detailView.hidden = false;
     detailKind.textContent = item.kind === "artist"
         ? "Perfil do artista"
@@ -1837,12 +1841,183 @@ async function showHomeView() {
     currentDetail = null;
     detailView.hidden = true;
     newsView.hidden = true;
+    if (profileView) {
+        profileView.hidden = true;
+    }
     document.querySelector(".home-view").hidden = false;
     // Carregar tendências do momento ao abrir a tela inicial
     // Load moment's trends when opening the home screen
     await loadTrends();
     window.history.replaceState({ home: true }, "", `${window.location.pathname}${window.location.search}`);
     mainView.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// Abre a vista de perfil local, integrada à pilha de navegação voltar/avançar.
+// Open the local profile view, integrated into the back/forward navigation stack.
+function openProfileView({ history = true } = {}) {
+    if (!profileView) {
+        return;
+    }
+    currentDetail = null;
+    document.querySelector(".home-view").hidden = true;
+    detailView.hidden = true;
+    newsView.hidden = true;
+    profileView.hidden = false;
+    renderProfileView();
+    if (history) {
+        window.history.pushState({ profile: true }, "", "#profile");
+        if (currentHistoryIndex >= 0) {
+            currentHistoryIndex += 1;
+            historyStack.length = currentHistoryIndex;
+            historyStack[currentHistoryIndex] = { profile: true };
+        }
+    }
+    updateHistoryButtonState();
+    mainView.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// Desenha identidade, estatísticas, recentes e favoritos direto do localStorage.
+// Draw identity, stats, recents, and favorites straight from localStorage.
+function renderProfileView() {
+    if (!profileView) {
+        return;
+    }
+    const name = preferences.profileName.trim() || "Ouvinte";
+    const avatar = profileView.querySelector("#profileViewAvatar");
+    const heading = profileView.querySelector("#profile-view-title");
+    if (avatar) {
+        // Sem foto por enquanto: usa as iniciais calculadas pelo profile.mjs.
+        // No photo for now: uses the initials computed by profile.mjs.
+        avatar.textContent = profileHelpers
+            ? profileHelpers.initialsFor(name)
+            : (name.match(/[\p{L}\p{N}]/u) || ["O"])[0].toLocaleUpperCase("pt-BR");
+    }
+    if (heading) {
+        heading.textContent = name;
+    }
+
+    // Estatísticas locais: reproduções e favoritos salvos neste navegador.
+    // Local stats: plays and favorites saved in this browser.
+    const stats = readLocalStats();
+    const totalPlays = Object.values(stats).reduce((sum, entry) => sum + (entry?.plays || 0), 0);
+    const favorites = profileHelpers
+        ? profileHelpers.favoritesFromLibrary(readLibrary())
+        : [];
+    const statsContainer = profileView.querySelector("#profileStats");
+    if (statsContainer) {
+        statsContainer.replaceChildren();
+        [
+            { value: totalPlays, label: "Reproduções locais" },
+            { value: favorites.length, label: "Itens favoritados" },
+            { value: readRecents().length, label: "Faixas no histórico" }
+        ].forEach((item) => {
+            const card = document.createElement("div");
+            card.className = "profile-stat";
+            card.setAttribute("role", "listitem");
+            const value = document.createElement("span");
+            value.className = "profile-stat__value";
+            value.textContent = new Intl.NumberFormat("pt-BR").format(item.value);
+            const label = document.createElement("span");
+            label.className = "profile-stat__label";
+            label.textContent = item.label;
+            card.append(value, label);
+            statsContainer.append(card);
+        });
+    }
+
+    renderProfileRecents();
+    renderProfileFavorites();
+}
+
+// Lista de "Ouvidos recentemente" dentro da vista de perfil, com estado vazio.
+// "Recently played" list inside the profile view, with an empty state.
+function renderProfileRecents() {
+    const grid = profileView.querySelector(".profile-recents-grid");
+    const empty = profileView.querySelector("[data-profile-recents-empty]");
+    if (!grid || !empty) {
+        return;
+    }
+    const recents = readRecents();
+    grid.replaceChildren();
+    empty.hidden = recents.length > 0;
+    if (!recents.length) {
+        return;
+    }
+    recents.forEach((entry) => {
+        const card = document.createElement("button");
+        card.className = "quick-pick";
+        card.type = "button";
+        const cover = document.createElement("span");
+        cover.className = "quick-pick__art mdi mdi-music";
+        const image = safeCoverUrl(entry.image);
+        if (image) {
+            cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+            cover.classList.add("has-cover");
+        }
+        const text = document.createElement("span");
+        const heading = document.createElement("strong");
+        heading.textContent = entry.title;
+        const subheading = document.createElement("small");
+        subheading.textContent = [entry.artistName || "Artista desconhecido", profileHelpers.relativeTime(entry.playedAt)]
+            .filter(Boolean)
+            .join(" • ");
+        text.append(heading, subheading);
+        card.append(cover, text);
+        card.addEventListener("click", () => {
+            const track = profileHelpers.trackFromRecent(entry);
+            if (track) {
+                void playTrack(track);
+            }
+        });
+        grid.append(card);
+    });
+}
+
+// Lista de favoritos (biblioteca salva) dentro da vista de perfil, com estado vazio.
+// Favorites (saved library) list inside the profile view, with an empty state.
+function renderProfileFavorites() {
+    const grid = profileView.querySelector(".profile-favorites-grid");
+    const empty = profileView.querySelector("[data-profile-favorites-empty]");
+    if (!grid || !empty) {
+        return;
+    }
+    const favorites = profileHelpers
+        ? profileHelpers.favoritesFromLibrary(readLibrary())
+        : [];
+    grid.replaceChildren();
+    empty.hidden = favorites.length > 0;
+    if (!favorites.length) {
+        return;
+    }
+    favorites.forEach((entry) => {
+        const card = document.createElement("button");
+        card.className = "quick-pick";
+        card.type = "button";
+        const cover = document.createElement("span");
+        cover.className = `quick-pick__art mdi ${entry.kind === "artist"
+            ? "mdi-account-music"
+            : entry.kind === "album"
+                ? "mdi-album"
+                : entry.kind === "playlist"
+                    ? "mdi-playlist-music"
+                    : "mdi-music"}`;
+        const image = safeCoverUrl(entry.image);
+        if (image) {
+            cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+            cover.classList.add("has-cover");
+        }
+        const text = document.createElement("span");
+        const heading = document.createElement("strong");
+        heading.textContent = entry.title;
+        const subheading = document.createElement("small");
+        subheading.textContent = entry.artistName || entry.kind;
+        text.append(heading, subheading);
+        card.append(cover, text);
+        card.addEventListener("click", () => {
+            void openLibraryEntry(entry);
+        });
+        grid.append(card);
+    });
 }
 
 // Carrega lançamentos dos artistas salvos, sem interromper a tela quando um provedor falha.
@@ -2030,6 +2205,9 @@ async function loadNewsReleases({ history = false } = {}) {
     currentDetail = null;
     document.querySelector(".home-view").hidden = true;
     detailView.hidden = true;
+    if (profileView) {
+        profileView.hidden = true;
+    }
     newsView.hidden = false;
     newsStatus.textContent = "Carregando lançamentos dos artistas salvos…";
     newsGrid.replaceChildren();
@@ -2807,10 +2985,13 @@ async function openSearchResults(query, { history = true } = {}) {
 // Preenche a vista de resultados com a consulta atual.
 // Fills the results view with the current query.
 async function loadSearchResults(query) {
-    if (!detailView.hidden || !newsView.hidden) {
+    if (!detailView.hidden || !newsView.hidden || (profileView && !profileView.hidden)) {
         currentDetail = null;
         detailView.hidden = true;
         newsView.hidden = true;
+        if (profileView) {
+            profileView.hidden = true;
+        }
         document.querySelector(".home-view").hidden = false;
     }
     if (searchInput.value.trim() !== query) {
@@ -3115,6 +3296,11 @@ function clearHistoryKeepingFavorites() {
     // Redesenha a seção de recentes (agora vazia) na home.
     // Redraw the (now empty) recently-played section on home.
     renderRecentsSection();
+    // Compatibilidade: se a vista de perfil estiver aberta, atualiza listas e estatísticas.
+    // Compatibility: if the profile view is open, refresh its lists and stats.
+    if (profileView && !profileView.hidden) {
+        renderProfileView();
+    }
     if (currentDetail) {
         detailMeta.querySelectorAll(".detail-meta__local-stat").forEach((stat) => stat.remove());
         renderDetailStats(currentDetail);
@@ -3250,6 +3436,11 @@ if (settingsDialog) {
         preferences = { ...preferences, profileName: event.currentTarget.value.slice(0, 40) };
         savePreferences();
         applyProfileIdentity();
+        // Mantém a vista de perfil (se aberta por trás do diálogo) sincronizada com o nome.
+        // Keeps the profile view (if open behind the dialog) in sync with the name.
+        if (profileView && !profileView.hidden) {
+            renderProfileView();
+        }
     });
 
     settingsDialog.querySelectorAll("[data-settings-action]").forEach((button) => {
@@ -3291,6 +3482,33 @@ document.querySelector(".detail-back").addEventListener("click", () => {
 
 document.querySelector(".news-back").addEventListener("click", () => {
     window.history.back();
+});
+
+// O "Voltar" da vista de perfil segue a pilha do navegador; sem histórico, volta para a home.
+// The profile view "Back" follows the browser stack; with no history, it returns home.
+document.querySelector(".profile-back").addEventListener("click", () => {
+    if (window.history.state?.profile) {
+        window.history.back();
+    } else {
+        void showHomeView();
+    }
+});
+
+// Setas voltar/avançar da barra superior: antes só atualizavam o estado desabilitado
+// (bug latente). Agora navegam de verdade pela pilha do navegador, que é a mesma usada
+// por openDetail/showNewsView/openProfileView/openSearchResults via pushState.
+// Top-bar back/forward arrows: they previously only updated the disabled state (latent
+// bug). Now they truly navigate the browser stack, the same one used by openDetail/
+// showNewsView/openProfileView/openSearchResults through pushState.
+document.querySelector(".topbar__history.back").addEventListener("click", () => {
+    if (!window.history.state || window.history.state.home) {
+        return;
+    }
+    window.history.back();
+});
+
+document.querySelector(".topbar__history.forward").addEventListener("click", () => {
+    window.history.forward();
 });
 
 document.querySelector(".detail-play").addEventListener("click", () => {
@@ -3958,8 +4176,13 @@ document.querySelectorAll("[data-action]").forEach((button) => {
                 showDialog("Atividade dos amigos", "A atividade de amigos não está conectada nesta demonstração.");
                 break;
             case "profile":
-                // O perfil é local: abre direto a seção editável do diálogo de configurações.
-                // The profile is local: open the editable section of the settings dialog.
+                // O perfil é local: abre a vista dedicada com identidade, estatísticas e listas.
+                // The profile is local: open the dedicated view with identity, stats, and lists.
+                openProfileView();
+                break;
+            case "edit-profile":
+                // Editar perfil abre a seção correspondente do diálogo de configurações.
+                // Editing the profile opens the matching settings-dialog section.
                 openSettings("settings-profile");
                 break;
             case "queue":
@@ -4010,6 +4233,9 @@ window.addEventListener("popstate", (event) => {
         openDetail(event.state.detail, { history: false });
     } else if (event.state?.news) {
         showNewsView({ history: false });
+    } else if (event.state?.profile) {
+        // Restaura a vista de perfil ao voltar/avançar / Restore the profile view on back/forward.
+        openProfileView({ history: false });
     } else if (typeof event.state?.search === "string") {
         // Restaura a vista de resultados ao voltar/avançar / Restore the results view on back/forward.
         void openSearchResults(event.state.search, { history: false });

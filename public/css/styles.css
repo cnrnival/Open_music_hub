@@ -820,6 +820,125 @@ input:focus-visible {
 	text-underline-offset: 2px;
 }
 
+/* Vista de perfil local: cabeçalho com avatar, estatísticas e listas de recentes/favoritos.
+   Local profile view: header with avatar, stats, and recents/favorites lists. */
+.profile-view {
+	padding-bottom: 18px;
+}
+
+.profile-back {
+	margin-bottom: 18px;
+}
+
+.profile-header {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	padding: 28px;
+	overflow: hidden;
+	border-radius: 8px;
+	background: linear-gradient(145deg, #c32974 0%, #4b2a52 55%, #181818 100%);
+}
+
+.profile-avatar {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 116px;
+	height: 116px;
+	border: 4px solid rgba(255, 255, 255, 0.85);
+	border-radius: 50%;
+	background: linear-gradient(140deg, #d8995d, #332a26 54%, #171717);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	font-size: 44px;
+	font-weight: 700;
+}
+
+.profile-header__content {
+	min-width: 0;
+}
+
+.profile-header__content h1 {
+	margin: 0 0 6px;
+	font-size: clamp(30px, 5vw, 56px);
+	letter-spacing: -1.6px;
+	line-height: 1.05;
+	overflow-wrap: anywhere;
+}
+
+.profile-subtitle {
+	max-width: 560px;
+	margin: 0 0 14px;
+	color: #f2e9ee;
+	line-height: 1.5;
+}
+
+.secondary-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 9px 16px;
+	border: 1px solid rgba(255, 255, 255, 0.4);
+	border-radius: 24px;
+	background: rgba(0, 0, 0, 0.25);
+	color: #fff;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 700;
+	transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.secondary-button:hover {
+	background: rgba(255, 255, 255, 0.12);
+	border-color: #fff;
+}
+
+/* Estatísticas de reprodução locais: contagens lidas deste navegador.
+   Local play statistics: counters read from this browser. */
+.profile-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 10px;
+	margin: 16px 0 24px;
+}
+
+.profile-stat {
+	display: grid;
+	gap: 3px;
+	padding: 14px 16px;
+	border-radius: 8px;
+	background: #181818;
+}
+
+.profile-stat__value {
+	font-size: 24px;
+	font-weight: 700;
+	letter-spacing: -0.6px;
+}
+
+.profile-stat__label {
+	color: var(--text-secondary);
+	font-size: 12px;
+}
+
+.profile-recents-section,
+.profile-favorites-section {
+	margin-bottom: 22px;
+}
+
+/* Estado vazio elegante quando não há histórico nem favoritos.
+   Elegant empty state when there is no history or favorites yet. */
+.profile-empty {
+	max-width: 520px;
+	margin: 4px 0 0;
+	padding: 14px 16px;
+	border: 1px dashed #3a3a3a;
+	border-radius: 8px;
+	color: var(--text-secondary);
+	line-height: 1.5;
+}
+
 .detail-toolbar {
 	display: flex;
 	align-items: center;
@@ -1570,8 +1689,11 @@ input:focus-visible {
 	text-decoration: underline;
 }
 
+/* Grade de artistas: colunas compactas no desktop, como nos cartões redondos do Spotify.
+   Artist grid: compact columns on desktop, matching Spotify's round cards. */
 .artist-grid {
 	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 	gap: 12px;
 }
 
@@ -1605,6 +1727,7 @@ input:focus-visible {
 
 .release-grid {
 	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
 	gap: 12px;
 }
 
@@ -1643,22 +1766,26 @@ input:focus-visible {
 	box-shadow: 0 8px 20px #0005;
 }
 
+/* Variantes de capa sem foto: todas escuras, sem círculo branco estourado.
+   Cover variants without a photo: all dark, no blown-out white circle. */
 .artist-card__image--illustration {
-	background: radial-gradient(circle at 40% 30%, #fff 0 22%, #bbb 23% 30%, #101010 31% 100%);
-	color: #111;
-	font-size: 70px;
+	background: radial-gradient(circle at 38% 28%, #6d4bd6 0 16%, #3b2a6b 44%, #17131f 100%);
+	color: #d9ccff;
+	font-size: clamp(40px, 4.4vw, 62px);
 }
 
 .artist-card__image--artist {
-	background: radial-gradient(circle at 35% 25%, #666, #252525 66%);
-	color: #d1d1d1;
-	font-size: clamp(44px, 5vw, 76px);
+	background: radial-gradient(circle at 35% 25%, #4d4d4d, #232323 68%);
+	color: #cfcfcf;
+	font-size: clamp(40px, 4.4vw, 62px);
 }
 
 .artist-card__image--graphic {
-	background: repeating-radial-gradient(circle at center, #ddd 0 5px, #111 6px 12px);
-	color: transparent;
-	font-size: 70px;
+	background:
+		radial-gradient(circle at center, #101014 0 40%, transparent 41%),
+		repeating-radial-gradient(circle at center, #2e2e38 0 6px, #16161b 7px 14px);
+	color: #b9b3d6;
+	font-size: clamp(34px, 3.6vw, 50px);
 }
 
 .artist-card strong,
@@ -1794,6 +1921,42 @@ input:focus-visible {
 	justify-content: space-between;
 	gap: 8px;
 	padding: 2px 0 4px;
+}
+
+/* Botões que funcionam como texto no painel direito: sem o cinza padrão do navegador.
+   Text-like buttons in the right panel: no browser default gray.
+   Sem estas regras, título, artista e créditos ficam texto branco sobre fundo claro. */
+.now-playing-panel__track-link,
+.now-playing-panel__artist-link,
+.credit-artist-link {
+	display: block;
+	max-width: 100%;
+	padding: 1px 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+	font: inherit;
+}
+
+.now-playing-panel__track-link:hover h2,
+.now-playing-panel__artist-link:hover p,
+.credit-artist-link:hover strong {
+	text-decoration: underline;
+}
+
+.credit-artist-link strong {
+	color: #fff;
+	font-weight: 600;
+}
+
+.music-player__enter-expanded,
+.music-player__expand {
+	border: 0;
+	background: transparent;
+	color: #fff;
+	cursor: pointer;
 }
 
 .now-playing-panel__track h2 {
@@ -2481,6 +2644,19 @@ input:focus-visible {
 
 	.detail-meta {
 		gap: 8px;
+	}
+
+	.profile-header {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 16px;
+		padding: 18px;
+	}
+
+	.profile-avatar {
+		width: 88px;
+		height: 88px;
+		font-size: 34px;
 	}
 
 	.detail-track-heading,

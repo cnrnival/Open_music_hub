@@ -170,6 +170,39 @@
 				<div class="news-grid"></div>
 			</section>
 
+			<!-- Vista de perfil local: identidade, estatísticas de reprodução, recentes e favoritos.
+			     Tudo é lido deste navegador (localStorage); nenhum dado sai do dispositivo.
+			     Local profile view: identity, play statistics, recents, and favorites. Everything is
+			     read from this browser (localStorage); no data leaves the device. -->
+			<section class="profile-view" data-view="profile" aria-labelledby="profile-view-title" aria-live="polite" hidden>
+				<button class="detail-back profile-back" type="button"><span class="mdi mdi-arrow-left" aria-hidden="true"></span> Voltar</button>
+				<header class="profile-header">
+					<span class="profile-avatar" id="profileViewAvatar" aria-hidden="true">O</span>
+					<div class="profile-header__content">
+						<p class="eyebrow">PERFIL LOCAL</p>
+						<h1 id="profile-view-title">Ouvinte</h1>
+						<p class="profile-subtitle">Nenhum login necessário — nome, estatísticas e biblioteca ficam guardados neste navegador.</p>
+						<button class="secondary-button profile-edit" type="button" data-action="edit-profile">
+							<span class="mdi mdi-pencil" aria-hidden="true"></span> Editar perfil
+						</button>
+					</div>
+				</header>
+
+				<div class="profile-stats" id="profileStats" role="list"></div>
+
+				<section class="trends-section profile-recents-section" aria-labelledby="profile-recents-title">
+					<div class="section-heading"><h2 id="profile-recents-title">Ouvidos recentemente</h2></div>
+					<div class="trends-grid profile-recents-grid"></div>
+					<p class="profile-empty" data-profile-recents-empty hidden>Você ainda não ouviu nada. Toque em qualquer faixa para começar a montar seu histórico.</p>
+				</section>
+
+				<section class="trends-section profile-favorites-section" aria-labelledby="profile-favorites-title">
+					<div class="section-heading"><h2 id="profile-favorites-title">Faixas favoritas</h2></div>
+					<div class="trends-grid profile-favorites-grid"></div>
+					<p class="profile-empty" data-profile-favorites-empty hidden>Nenhum favorito ainda. Use o botão + nas faixas, álbuns e playlists para fixá-los aqui.</p>
+				</section>
+			</section>
+
 			<!-- Esta página mostra o perfil, a faixa, o álbum ou a playlist selecionada.
 			     This page displays the selected artist profile, track, album, or playlist. -->
 			<section class="detail-view" aria-live="polite" hidden>
