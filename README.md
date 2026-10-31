@@ -10,6 +10,8 @@ Projeto open source para reunir busca, descoberta e reprodução de músicas em 
 - Aba **Novidades** para consultar lançamentos de artistas salvos.
 - Player com reprodução de faixas completas a partir de vários arquivos de áudio locais selecionados pelo usuário; prévias do Deezer continuam disponíveis quando fornecidas. A seleção aceita apenas formatos de áudio.
 - Integração opcional com Jamendo para faixas completas que tenham download permitido e licença compatível.
+- Perfil local editável (nome, bio, foto e capa) com "Escutadas recentemente" e a lista de favoritos salvos, tudo no navegador e sem login.
+- Menus de três pontinhos: na faixa (baixar offline, fixar na biblioteca, ver letra, ir para o artista, copiar link) e no cabeçalho (configurações, editar perfil, sobre o projeto).
 - Configurações locais de armazenamento, biblioteca, densidade, reprodução (autoplay, sem pausas e qualidade) e perfil, sem login.
 - Controles de fila, volume, busca por posição e salvamentos locais.
 - Configuração dos provedores centralizada em `public/js/config.js`.

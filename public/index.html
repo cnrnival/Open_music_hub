@@ -23,6 +23,9 @@
 			<button class="hamburger-button" type="button" aria-label="Abrir biblioteca" id="hamburgerButton" aria-expanded="false" aria-controls="libraryPanel">
 				<span class="mdi mdi-menu" aria-hidden="true"></span>
 			</button>
+			<button class="icon-button topbar__history back" type="button" aria-label="Voltar" disabled aria-disabled="true" title="Voltar"><span class="mdi mdi-arrow-left" aria-hidden="true"></span></button>
+			<button class="icon-button topbar__history forward" type="button" aria-label="Avançar" disabled aria-disabled="true" title="Avançar"><span class="mdi mdi-arrow-right" aria-hidden="true"></span></button>
+			<button class="icon-button" type="button" aria-label="Fila de reprodução" data-action="queue" title="Fila de reprodução"><span class="mdi mdi-playlist-music" aria-hidden="true"></span></button>
 			<button class="icon-button topbar__home" type="button" aria-label="Início"><span class="mdi mdi-home" aria-hidden="true"></span></button>
 			<div class="search-box">
 				<span class="mdi mdi-magnify" aria-hidden="true"></span>
@@ -146,6 +149,13 @@
 				</div>
 			</section>
 			<p class="empty-results" hidden>Nenhum conteúdo encontrado.</p>
+
+			<!-- Histórico de escuta local: preenchido pelo player e guardado neste navegador. -->
+			<!-- Local listening history: filled by the player and stored in this browser. -->
+			<section class="trends-section recents-section" aria-labelledby="recents-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="recents-title">Ouvidos recentemente</h2></div>
+				<div class="trends-grid recents-grid"></div>
+			</section>
 			</div>
 
 			<section class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
@@ -201,14 +211,15 @@
 					<p class="expanded-view__eyebrow">EM EXIBIÇÃO</p>
 					<button class="icon-button expanded-view__minimize" type="button" aria-label="Minimizar"><span class="mdi mdi-chevron-down" aria-hidden="true"></span></button>
 				</div>
-				<div class="expanded-view__stage">
-					<div class="expanded-view__art" aria-hidden="true"><span class="mdi mdi-music"></span></div>
-					<div class="expanded-view__meta">
-						<h2 class="expanded-view__title">Nenhuma música selecionada</h2>
-						<p class="expanded-view__artist">Carregue um arquivo de áudio</p>
-						<p class="expanded-view__elapsed"><span class="mdi mdi-clock-outline" aria-hidden="true"></span> <span class="expanded-view__clock">00:00</span></p>
-					</div>
-				</div>
+			<div class="expanded-view__stage">
+				<div class="expanded-view__art" aria-hidden="true"><span class="mdi mdi-music"></span></div>
+				<div class="expanded-view__meta">
+					<h2 class="expanded-view__title">Nenhuma música selecionada</h2>
+					<p class="expanded-view__artist">Carregue um arquivo de áudio</p>
+					<p class="expanded-view__elapsed"><span class="mdi mdi-clock-outline" aria-hidden="true"></span> <span class="expanded-view__clock">00:00</span></p>
+					<p class="expanded-view__gradient"></p>
+			</div>
+			</div>
 				<section class="lyrics-synced" aria-label="Letra sincronizada">
 					<p class="lyrics-synced__status" role="status" aria-live="polite"></p>
 					<div class="lyrics-synced__lines"></div>
@@ -219,7 +230,8 @@
 		<aside class="now-playing-panel panel">
 			<div class="now-playing-panel__heading">
 				<button class="now-playing-panel__title" type="button" data-action="queue"><span class="mdi mdi-play-box-outline" aria-hidden="true"></span> Tocando agora</button>
-				<div><button class="icon-button now-playing-panel__expand" type="button" aria-label="Expandir em exibição" aria-expanded="false" aria-controls="expandedView"><span class="mdi mdi-arrow-expand" aria-hidden="true"></span></button><button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
+				<div><button class="icon-button now-playing-panel__expand" type="button" aria-label="Expandir em exibição" aria-expanded="false" aria-controls="expandedView"><span class="mdi mdi-arrow-expand" aria-hidden="true"></span></button>			<button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
+			<button class="music-player__enter-expanded" type="button" aria-label="Abrir em exibição expandida" title="Em exibição expandida"><span class="mdi mdi-chevron-up" aria-hidden="true"></span></button>
 			</div>
 			<div class="now-playing-panel__art mdi mdi-music-note" aria-hidden="true"></div>
 			<div class="now-playing-panel__track">
@@ -261,9 +273,8 @@
 		</div>
 		<button class="music-player__expand" type="button" aria-label="Expandir player" aria-expanded="false"><span class="mdi mdi-chevron-up" aria-hidden="true"></span></button>
 		<div class="music-player__extras">
-			<button type="button" data-download-current aria-label="Baixar para ouvir offline"><span class="mdi mdi-download-outline" aria-hidden="true"></span></button>
-			<button type="button" aria-label="Letra"><span class="mdi mdi-microphone-outline" aria-hidden="true"></span></button>
-			<button type="button" aria-label="Fila"><span class="mdi mdi-playlist-music" aria-hidden="true"></span></button>
+			<button type="button" data-download-current aria-label="Baixar para ouvir offline"><span class="mdi mdi-download-outline" aria-hidden="true"></span></button>				<button type="button" aria-label="Letra" data-action="lyrics"><span class="mdi mdi-microphone-outline" aria-hidden="true"></span></button>
+
 			<button type="button" aria-label="Conectar a um dispositivo"><span class="mdi mdi-speaker" aria-hidden="true"></span></button>
 			<div class="music-player__volume"><button class="music-player__mute" type="button" aria-label="Silenciar"><span class="mdi mdi-volume-high" aria-hidden="true"></span></button><input class="music-player__volume-control" type="range" min="0" max="1" step="0.01" value="0.75" aria-label="Volume" aria-valuetext="75%"></div>
 			<button type="button" aria-label="Mini player"><span class="mdi mdi-picture-in-picture-bottom-right" aria-hidden="true"></span></button>

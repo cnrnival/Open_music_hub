@@ -21,6 +21,15 @@ const INVIDIOUS_AUDIO_CACHE_TTL_MS = 30 * 60 * 1000;
 // Arquivos de áudio são transferidos por vários minutos; um timeout curto abortaria a metade do fluxo.
 // Audio files stream for minutes; a short timeout would abort the transfer halfway through.
 const INVIDIOUS_MEDIA_TIMEOUT_MS = 5 * 60 * 1000;
+
+// ============================================================
+// SSRF / Proxy de áudio / Replay seguro
+// ============================================================
+// [PT] Proxy de áudio blindado: somente instâncias autorizadas, sem redirect para hosts bloqueados.
+// [EN] Hardened audio proxy: only authorized instances, no redirect to blocked hosts.
+// Cada destino externo é validado antes da transferência de bytes, com limite de hops.
+// Each external destination is validated before any byte transfer, with a hop limit.
+// ============================================================
 const mimeTypes = new Map([
     [".css", "text/css; charset=utf-8"],
     [".html", "text/html; charset=utf-8"],
@@ -568,6 +577,143 @@ function delay(milliseconds) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+// Blindado contra SSRF: proxy de áudio aceita somente URLs de instâncias autorizadas.
+// SSRF-hardened: the audio proxy accepts only URLs from authorized instances.
+// Provedores externos nunca são os alvos aqui: cada destino passa por validação de host e de redirect.
+// External providers are never the targets here: every destination goes through host and redirect validation.
+
+// Allowlist explícita de instâncias de streaming de áudio confiáveis do projeto.
+// Explicit allowlist of trusted audio-streaming instances used by the project.
+const ALLOWED_STREAM_DOMAINS = new Set([
+    "invidious.f5.si",
+    "inv.us.projectsegfau.lt",
+    "invidious.nerdvpn.de",
+    "invidious.drgns.space",
+    "piped.video",
+    "pipedapi.kavin.rocks",
+    "api.piped.dev"
+]);
+
+// Bloqueia loopback e redes privadas conhecidas usadas em ataques SSRF.
+// Blocks loopback and well-known private networks used in SSRF attacks.
+function isBlockedIp(ip) {
+    if (!ip || typeof ip !== "string") {
+        return false;
+    }
+    const trimmed = ip.trim();
+    if (trimmed === "" || trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "::1" || /\.0$/.test(trimmed)) {
+        return true;
+    }
+    const parts = trimmed.split(".");
+    if (parts.length === 4) {
+        const octets = parts.map((part) => Number(part));
+        if (octets.some((value) => isNaN(value) || !Number.isInteger(value))) {
+            return false;
+        }
+        if (octets[0] === 10) {
+            return true;
+        }
+        if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) {
+            return true;
+        }
+        if (octets[0] === 192 && octets[1] === 168) {
+            return true;
+        }
+        if (octets[0] === 169 && octets[1] === 254) {
+            return true;
+        }
+        if (octets[0] === 127) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Extrai o host de uma URL, rejeitando IPv6 entre colchetes e outras formas de evasão simples.
+// Extracts the host from a URL, rejecting bracketed IPv6 and other simple evasion shapes.
+function hostFromTargetUrl(targetUrl) {
+    try {
+        const parsed = new URL(targetUrl);
+        const host = parsed.hostname || parsed.host || "";
+        if (!host || /^[\[\]]/.test(host)) {
+            return null;
+        }
+        return host.toLowerCase();
+    } catch (error) {
+        return null;
+    }
+}
+
+// Valida o destino da requisição e o rastreia até o limite de hops permitido.
+// Validates the request target and follows it up to the allowed hop limit.
+async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
+    if (typeof targetUrl !== "string" || targetUrl.trim() === "") {
+        return { ok: false, error: "Invalid target URL." };
+    }
+    let current = targetUrl.trim();
+    for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+        const host = hostFromTargetUrl(current);
+        if (!host) {
+            return { ok: false, error: "Target URL is not a valid host." };
+        }
+        if (isBlockedIp(host)) {
+            return { ok: false, error: "Target host is blocked." };
+        }
+        if (!ALLOWED_STREAM_DOMAINS.has(host)) {
+            return { ok: false, error: "Target host is not allowed." };
+        }
+
+        const fetchOptions = {
+            redirect: "manual",
+            signal: AbortSignal.timeout(INVIDIOUS_MEDIA_TIMEOUT_MS)
+        };
+        let upstream;
+        try {
+            upstream = await fetch(current, fetchOptions);
+        } catch (error) {
+            return { ok: false, error: "Upstream fetch failed." };
+        }
+        if (!upstream || !upstream.ok) {
+            if (upstream?.status === 302 || upstream?.status === 301 || upstream?.status === 307 || upstream?.status === 308) {
+                const location = upstream.headers.get("location") || "";
+                if (typeof location === "string" && location.trim() !== "") {
+                    const nextHost = hostFromTargetUrl(location);
+                    if (!nextHost || isBlockedIp(nextHost) || !ALLOWED_STREAM_DOMAINS.has(nextHost)) {
+                        return { ok: false, error: "Redirect target is not allowed." };
+                    }
+                    current = location.trim();
+                    continue;
+                }
+            }
+            return { ok: false, error: `Upstream responded with HTTP ${upstream?.status || "unknown"}.` };
+        }
+
+        const contentType = String((upstream.headers.get("content-type") || "").split(";")[0] || "").toLowerCase();
+        if (!contentType.startsWith("audio/") && !contentType.startsWith("video/") && !contentType.startsWith("text/")) {
+            return { ok: false, error: "Upstream content type is not media." };
+        }
+
+        if (upstream.status === 200 || upstream.status === 206) {
+            return { ok: true, url: current, status: upstream.status, contentType };
+        }
+
+        const location = upstream.headers.get("location") || "";
+        if (typeof location === "string" && location.trim() !== "") {
+            const nextHost = hostFromTargetUrl(location);
+            if (!nextHost || isBlockedIp(nextHost) || !ALLOWED_STREAM_DOMAINS.has(nextHost)) {
+                return { ok: false, error: "Redirect target is not allowed." };
+            }
+            current = location.trim();
+            continue;
+        }
+
+        return { ok: false, error: `Unexpected upstream response ${upstream.status}.` };
+    }
+
+    return { ok: false, error: "Too many redirects." };
+}
+
+
 // Consulta metadados no Invidious. A instância pública falha de forma intermitente (5xx),
 // então repetimos algumas vezes com backoff antes de desistir.
 // Fetch Invidious metadata. The public instance fails intermittently (5xx),
@@ -827,22 +973,23 @@ async function handleInvidiousStream(request, response, url) {
     if (request.headers.range) {
         headers.Range = request.headers.range;
     }
+    const quality = normalizeStreamQuality(url.searchParams.get("quality"));
+    const resolved = await resolveInvidiousAudio(videoId, { quality });
+    // Confirma o destino real antes de encaminhar bytes: bloqueia SSRF e redirects não autorizados.
+    // Confirms the real destination before forwarding bytes: blocks SSRF and unauthorized redirects.
+    const safe = await resolveSafeStreamUrl(resolved.audio.url);
+    if (!safe.ok) {
+        throw new Error(safe.error);
+    }
+
     const fetchMedia = (audioUrl) => fetch(audioUrl, {
         headers,
+        redirect: "manual",
         signal: AbortSignal.timeout(INVIDIOUS_MEDIA_TIMEOUT_MS)
     });
-    const quality = normalizeStreamQuality(url.searchParams.get("quality"));
-    let resolved = await resolveInvidiousAudio(videoId, { quality });
-    let upstream = await fetchMedia(resolved.audio.url);
-    // URLs do YouTube expiram ou são recusadas; uma segunda resolução costuma gerar uma URL válida.
-    // YouTube URLs expire or get rejected; resolving again usually yields a valid URL.
-    if ([403, 404, 410].includes(upstream.status)) {
-        console.warn(`Invidious media refused with HTTP ${upstream.status}; resolving again.`);
-        resolved = await resolveInvidiousAudio(videoId, { force: true, quality });
-        upstream = await fetchMedia(resolved.audio.url);
-    }
+    let upstream = await fetchMedia(safe.url);
     if (!upstream.ok && upstream.status !== 206) {
-        throw new Error(`Invidious media responded with HTTP ${upstream.status}.`);
+        throw new Error(`Upstream media responded with HTTP ${upstream.status}.`);
     }
     const mimeType = resolved.audio.mimeType.split(";")[0].trim();
     const responseHeaders = {

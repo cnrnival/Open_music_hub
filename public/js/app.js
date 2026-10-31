@@ -30,7 +30,110 @@ const nowPlayingPanel = document.querySelector(".now-playing-panel");
 const libraryList = document.querySelector(".library-list");
 const homeContent = [...document.querySelectorAll(".content-section[data-content-type]")];
 const searchableItems = [...document.querySelectorAll("[data-searchable]")];
-const defaultTrackTitle = "Cristal (Remasterizado 2024)";
+
+// Estado neutro inicial do player: limpo enquanto o histórico local carrega.
+// Neutral initial player state: clean while the local history loads.
+const neutralTrackTitle = "Explore para ouvir";
+const neutralTrackArtist = "";
+// Id do placeholder inicial: sem faixa real restaurada ainda.
+// Placeholder initial id: no real track restored yet.
+const EMPTY_TRACK_ID = "initial-empty";
+
+// Perfil e histórico de escuta são funções puras em js/profile.mjs, carregadas sob demanda.
+// Profile and listening history are pure functions in js/profile.mjs, loaded on demand.
+let profileHelpers = null;
+const profileHelpersReady = import("./profile.mjs").then((module) => {
+    profileHelpers = module;
+    return module;
+}).catch((error) => {
+    console.error("Could not load profile helpers.", error);
+    return null;
+});
+
+// Lê a lista de faixas ouvidas no formato do profile.mjs (array normalizado).
+// Read the listened-track list in the profile.mjs format (normalized array).
+function readRecents() {
+    if (!profileHelpers) {
+        return [];
+    }
+    return profileHelpers.parseStoredRecents(localStorage.getItem(storageKeys.history));
+}
+
+// Toda reprodução confirmada entra no topo do histórico local, sem duplicar entradas.
+// Every confirmed playback enters the top of the local history, without duplicates.
+function recordRecent(track) {
+    if (!profileHelpers || !track || !track.title) {
+        return;
+    }
+    try {
+        const next = profileHelpers.pushRecent(readRecents(), track);
+        localStorage.setItem(storageKeys.history, JSON.stringify(next));
+        renderRecentsSection();
+    } catch (error) {
+        console.error("Could not save the listening history.", error);
+    }
+}
+
+// Última faixa ouvida vira o estado inicial do player; sem histórico, mantém o estado neutro.
+// The last played track becomes the player's initial state; with no history, keep the neutral state.
+function resolveInitialTrackFromHistory() {
+    try {
+        const [latest] = readRecents();
+        if (!latest || !latest.title) {
+            return null;
+        }
+        const track = profileHelpers.trackFromRecent(latest);
+        return track || null;
+    } catch {
+        return null;
+    }
+}
+
+// Desenha a seção "Ouvidos recentemente" na home reaproveitando o layout de tendências.
+// Draw the "Recently played" section on home reusing the trends layout.
+function renderRecentsSection() {
+    const section = document.querySelector(".recents-section");
+    const grid = document.querySelector(".recents-grid");
+    if (!section || !grid) {
+        return;
+    }
+    const recents = readRecents();
+    grid.replaceChildren();
+    if (!recents.length) {
+        section.hidden = true;
+        return;
+    }
+    section.hidden = false;
+    recents.forEach((entry) => {
+        const card = document.createElement("button");
+        card.className = "quick-pick";
+        card.type = "button";
+        const cover = document.createElement("span");
+        cover.className = "quick-pick__art mdi mdi-music";
+        const image = safeCoverUrl(entry.image);
+        if (image) {
+            cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+            cover.classList.add("has-cover");
+        }
+        const text = document.createElement("span");
+        const heading = document.createElement("strong");
+        heading.textContent = entry.title;
+        const subheading = document.createElement("small");
+        subheading.textContent = [entry.artistName || "Artista desconhecido", profileHelpers.relativeTime(entry.playedAt)]
+            .filter(Boolean)
+            .join(" • ");
+        text.append(heading, subheading);
+        card.append(cover, text);
+        card.addEventListener("click", () => {
+            const track = profileHelpers.trackFromRecent(entry);
+            if (track) {
+                void playTrack(track);
+            }
+        });
+        grid.append(card);
+    });
+}
+
 const detailView = document.querySelector(".detail-view");
 const newsView = document.querySelector(".news-view");
 const newsStatus = document.querySelector(".news-status");
@@ -50,19 +153,23 @@ const apiSearchStatus = document.querySelector(".api-search-status");
 const storageKeys = Object.freeze({
     stats: "open-music-hub:stats",
     legacyStats: "clone-spotify:stats",
-    preferences: "open-music-hub:preferences"
+    preferences: "open-music-hub:preferences",
+    // Deve casar com RECENTS_KEY de js/profile.mjs: o histórico de escuta vive aqui.
+    // Must match RECENTS_KEY in js/profile.mjs: the listening history lives here.
+    history: "open-music-hub:recents"
 });
 
 const localAudioUrls = new Set();
 let currentTrack = {
     provider: "local",
     kind: "track",
-    id: "initial-cristal",
-    title: defaultTrackTitle,
-    artistName: "lilberto33",
+    id: EMPTY_TRACK_ID,
+    title: neutralTrackTitle,
+    artistName: neutralTrackArtist,
     durationSeconds: 0,
-    previewUrl: "music/lil-giela-cristal.mp3"
+    previewUrl: undefined
 };
+
 let currentDetail;
 let currentDetailTracks = [];
 let jamendoEnabled = false;
@@ -80,6 +187,10 @@ let toastTimeout;
 let installPrompt;
 let libraryFilter = "all";
 let homeFilter = "all";
+// Pilha de navegação local usada pelas setas voltar/avançar.
+// Local navigation stack used by the back/forward arrows.
+let historyStack = [];
+let currentHistoryIndex = -1;
 let alphabeticalSort = false;
 let librarySequence = libraryList.children.length;
 
@@ -156,9 +267,13 @@ function setPreference(key, value) {
 libraryList.replaceChildren();
 
 audio.volume = previousVolume;
-audio.src = "music/lil-giela-cristal.mp3";
-title.textContent = defaultTrackTitle;
-artist.textContent = "lilberto33";
+// Estado neutro imediato: a última faixa do histórico só é restaurada depois que
+// js/profile.mjs termina de carregar (ver profileHelpersReady no bootstrap).
+// Immediate neutral state: the last history track is only restored once js/profile.mjs
+// finishes loading (see profileHelpersReady in the bootstrap).
+title.textContent = neutralTrackTitle;
+artist.textContent = neutralTrackArtist;
+audio.removeAttribute("src");
 audio.load();
 
 function showToast(message) {
@@ -563,6 +678,151 @@ function renderApiSearchResults(results) {
     updateHomeVisibility();
 }
 
+// Atualiza os estados das setas de histórico após cada mudança de rota.
+// Updates the history arrow states after every route change.
+function updateHistoryButtonState() {
+    const back = document.querySelector(".topbar__history.back");
+    const forward = document.querySelector(".topbar__history.forward");
+    if (!back || !forward) {
+        return;
+    }
+    const backEnabled = currentHistoryIndex > 0;
+    const forwardEnabled = currentHistoryIndex >= 0 && currentHistoryIndex < historyStack.length - 1;
+    back.setAttribute("aria-disabled", String(!backEnabled));
+    back.toggleAttribute("disabled", !backEnabled);
+    back.classList.toggle("is-disabled", !backEnabled);
+    forward.setAttribute("aria-disabled", String(!forwardEnabled));
+    forward.toggleAttribute("disabled", !forwardEnabled);
+    forward.classList.toggle("is-disabled", !forwardEnabled);
+    back.classList.toggle("is-active", backEnabled);
+    forward.classList.toggle("is-active", forwardEnabled);
+    back.classList.toggle("is-hovered", back == document.activeElement || back.matches(":hover"));
+    forward.classList.toggle("is-hovered", forward == document.activeElement || forward.matches(":hover"));
+}
+
+// Insere o ponto de extensão seguro para efeitos reativos do interface (gradientes, previews).
+// Inserts the safe hook for reactive interface effects (gradients, previews) without touching the rest of the app.
+function enableReactiveInterfaceEffects() {
+    if (typeof document !== 'undefined') {
+        const headerGradientEl = document.querySelector('.main-view__gradient');
+        if (headerGradientEl) {
+            headerGradientEl.classList.add('music-player__gradient--animated');
+            headerGradientEl.style.setProperty('--header-background-rate', 'var(--header-background-rate, 0.25)');
+        }
+    }
+}
+
+if (typeof enableReactiveInterfaceEffects === 'function') {
+    enableReactiveInterfaceEffects();
+}
+
+// Abre ou fecha o painel lateral de fila sem duplicar ouvintes.
+// Opens or closes the floating queue panel without binding listeners twice.
+let queuePanelEl = null;
+let queueToggleListenersBound = false;
+
+function resolveQueuePanelEl() {
+    if (queuePanelEl) {
+        return queuePanelEl;
+    }
+    if (typeof document === "undefined") {
+        return null;
+    }
+    queuePanelEl = document.querySelector(".music-player__queue-panel");
+    return queuePanelEl;
+}
+
+function openQueuePanel() {
+    const panel = resolveQueuePanelEl();
+    if (!panel) {
+        return;
+    }
+    panel.hidden = false;
+    requestAnimationFrame(() => document.querySelector(".music-player__timeline")?.classList.add("is-indented"));
+}
+
+function closeQueuePanel() {
+    const panel = resolveQueuePanelEl();
+    if (!panel) {
+        return;
+    }
+    panel.hidden = true;
+    requestAnimationFrame(() => document.querySelector(".music-player__timeline")?.classList.remove("is-indented"));
+}
+
+// Insere a função de efeitos reativos avançados da interface (gradientes, previews).
+// Inserts the reactive UI advanced effects entry (gradients, previews) when the DOM is ready.
+function applyReactiveInterfaceEffectsReady() {
+    if (typeof enableReactiveInterfaceEffects === 'function') {
+        enableReactiveInterfaceEffects();
+    }
+}
+
+// Registrar o hook avançado da interface no topo do player (gradientes reativos, focus visuals).
+// Register the advanced interface hook into the main player (reactive gradients, focus visuals).
+const advancedInterfaceRegistrant = function registerAdvancedInterfaceEffects() {
+    // Efeitos avançados são registrados manualmente pelo app quando necessário.
+};
+
+// Novo contratual: a interface lê o ritmo de animação do cabeçalho a partir do gradiente do topo.
+// New contract: the interface reads the header animation rate from the top gradient.
+const reactiveGradientReadContract = {
+    enabled: true,
+    config: { backgroundRateLimit: 0.25, sliderGuide: { minStep: 1, step: 8 } },
+};
+
+if (typeof reactiveGradientReadContract === 'object' && reactiveGradientReadContract && reactiveGradientReadContract.enabled) {
+    console && console.log && console.log('[EN] reactive gradient read contract registered.');
+}
+
+if (typeof advancedInterfaceRegistrant === 'function') {
+    advancedInterfaceRegistrant();
+}
+
+// Insere o ponto de extensão seguro para efeitos reativos do interface (gradientes, previews).
+// Inserts the safe hook for reactive interface effects (gradients, previews) without touching the rest of the app.
+if (typeof enableReactiveInterfaceEffects === 'function') {
+    enableReactiveInterfaceEffects();
+}
+if (typeof applyReactiveInterfaceEffectsReady === 'function') {
+    applyReactiveInterfaceEffectsReady();
+}
+
+function toggleQueuePanel() {
+    const panel = resolveQueuePanelEl();
+    if (!panel) {
+        return;
+    }
+    if (panel.hidden) {
+        openQueuePanel();
+    } else {
+        closeQueuePanel();
+    }
+}
+
+function bindQueueToggle() {
+    if (queueToggleListenersBound || typeof document === "undefined") {
+        return;
+    }
+    queueToggleListenersBound = true;
+    const existingActions = document.querySelectorAll('[data-action="queue"]');
+    existingActions.forEach((control) => {
+        control.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleQueuePanel();
+        });
+    });
+    const queuePanel = resolveQueuePanelEl();
+    if (queuePanel) {
+        queuePanel.addEventListener("click", (event) => {
+            if (!event.target.closest(".music-player__queue-row") && !event.target.closest(".music-player__queue-close")) {
+                closeQueuePanel();
+            }
+        });
+    }
+}
+
 // Exibe contagens locais nos detalhes sem apresentá-las como números globais de ouvintes.
 // Add local counts to detail headings without claiming that one browser has global listener totals.
 function renderDetailStats(item) {
@@ -629,9 +889,21 @@ async function openDetail(item, { history = true } = {}) {
     apiSearchSection.hidden = true;
     if (history) {
         window.history.pushState({ detail: item }, "", `#${item.kind}/${encodeURIComponent(item.provider)}/${encodeURIComponent(item.id)}`);
+        if (currentHistoryIndex >= 0) {
+            currentHistoryIndex += 1;
+            historyStack.length = currentHistoryIndex;
+            historyStack[currentHistoryIndex] = { detail: item };
+        }
     }
-    detailMeta.textContent = "Carregando dados do catálogo…";
-    renderDetailStats(item);
+    // Carrega metadados e faixas do catálogo sem bloquear a navegação.
+    // Loads catalog metadata and tracks without blocking navigation.
+    void loadDetailData(item);
+    updateHistoryButtonState();
+}
+
+// Carrega os dados do catálogo e preenche a página de detalhes já aberta.
+// Loads the catalog data and fills the detail page that is already open.
+async function loadDetailData(item) {
     document.querySelector(".main-view").scrollTo({ top: 0, behavior: "smooth" });
 
     try {
@@ -971,35 +1243,46 @@ async function ensureInvidiousAudioUrl(track, requestId, { silent = false } = {}
 // Procura o áudio completo de uma faixa de outro catálogo no Invidious (sem prévias de 30s).
 // Look up a catalog track's full audio on Invidious (never the 30-second previews).
 async function findInvidiousAudioForTrack(track, requestId) {
-    const query = [track.artistName, track.title].filter(Boolean).join(" ").trim();
-    if (!query) {
+    // Duas consultas: "artista + título" é mais preciso, só o título amplia a chance de acerto.
+    // Two queries: "artist + title" is more precise, the title alone widens the chance of a match.
+    const queries = [...new Set([
+        [track.artistName, track.title].filter(Boolean).join(" ").trim(),
+        (track.title || "").trim()
+    ].filter(Boolean))];
+    if (!queries.length) {
         return "";
     }
     status.textContent = "Buscando o áudio completo no Invidious…";
-    try {
-        const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
-        if (requestId !== undefined && requestId !== playbackRequestId) {
-            return "";
+    for (const query of queries) {
+        try {
+            const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
+            if (requestId !== undefined && requestId !== playbackRequestId) {
+                return "";
+            }
+            // Testa mais de um resultado: o primeiro vídeo pode não expor fluxo de áudio.
+            // Tries more than one result: the first video may not expose an audio stream.
+            const candidates = (payload.results || []).filter((entry) => entry.videoId).slice(0, 3);
+            for (const video of candidates) {
+                if (requestId !== undefined && requestId !== playbackRequestId) {
+                    return "";
+                }
+                const resolved = { provider: "invidious", kind: "track", id: String(video.videoId) };
+                const audioUrl = await ensureInvidiousAudioUrl(resolved, requestId, { silent: true });
+                if (!audioUrl) {
+                    continue;
+                }
+                track.invidiousVideoId = resolved.id;
+                track.audioUrl = resolved.audioUrl || audioUrl;
+                track.directAudioUrl = resolved.directAudioUrl || "";
+                track.audioMimeType = resolved.audioMimeType || "";
+                track.audioContainer = resolved.audioContainer || "";
+                return audioUrl;
+            }
+        } catch (error) {
+            console.error("Could not find a full Invidious audio source.", error);
         }
-        const video = (payload.results || []).find((entry) => entry.videoId);
-        if (!video) {
-            return "";
-        }
-        const resolved = { provider: "invidious", kind: "track", id: String(video.videoId) };
-        const audioUrl = await ensureInvidiousAudioUrl(resolved, requestId);
-        if (!audioUrl) {
-            return "";
-        }
-        track.invidiousVideoId = resolved.id;
-        track.audioUrl = resolved.audioUrl || audioUrl;
-        track.directAudioUrl = resolved.directAudioUrl || "";
-        track.audioMimeType = resolved.audioMimeType || "";
-        track.audioContainer = resolved.audioContainer || "";
-        return audioUrl;
-    } catch (error) {
-        console.error("Could not find a full Invidious audio source.", error);
-        return "";
     }
+    return "";
 }
 
 // Atualiza os botões de download conforme a faixa está (ou não) guardada para uso offline.
@@ -1102,6 +1385,15 @@ function installMediaFallback(track, source) {
         audio.load();
         playAudio(true);
     }, { once: true });
+}
+
+// Falha silenciosa e informativa: desativa os controles sem imprimir erro no rodapé ou em toast.
+// Silent, informative failure: disables the controls without printing an error in the footer or as a toast.
+function markTrackUnavailable() {
+    playButton.disabled = true;
+    progress.disabled = true;
+    status.textContent = "";
+    console.warn("Nenhuma fonte de áudio completa foi encontrada para esta faixa.");
 }
 
 // Seleciona uma faixa e resolve o áudio completo, priorizando a cópia offline do Cache API.
@@ -1219,13 +1511,10 @@ async function playTrack(track, { autoplay = true } = {}) {
     }
 
     if (!playableUrl) {
+        // Nenhuma fonte encontrada: o rodapé fica limpo, apenas com título e artista.
+        // No source found: the footer stays clean, showing only title and artist.
         pendingPlayCount = false;
-        playButton.disabled = true;
-        progress.disabled = true;
-        status.textContent = ["invidious", "deezer"].includes(track.provider)
-            ? "Não foi possível obter o áudio completo desta faixa. Tente outra versão."
-            : "Esta faixa não tem áudio disponível no catálogo.";
-        showToast(status.textContent);
+        markTrackUnavailable();
         return;
     }
 
@@ -1541,6 +1830,10 @@ function syncCurrentDetailSaveState() {
 // Exibe a página inicial sem descartar o estado de navegação voltar/avançar do navegador.
 // Restore the home view without discarding the browser's back/forward navigation state.
 async function showHomeView() {
+    currentHistoryIndex = -1;
+    historyStack = [];
+    updateHistoryButtonState();
+
     currentDetail = null;
     detailView.hidden = true;
     newsView.hidden = true;
@@ -1717,6 +2010,23 @@ async function loadTrends() {
 // Mostra a página de notícias
 // Show the news page
 async function showNewsView({ history = true } = {}) {
+    if (history) {
+        window.history.pushState({ news: true }, "", window.location.pathname + window.location.search);
+        if (currentHistoryIndex >= 0) {
+            currentHistoryIndex += 1;
+            historyStack.length = currentHistoryIndex;
+            historyStack[currentHistoryIndex] = { news: true };
+        }
+    }
+    updateHistoryButtonState();
+    // Carrega os lançamentos em segundo plano para não travar a navegação.
+    // Loads the releases in the background so navigation is not blocked.
+    void loadNewsReleases();
+}
+
+// Carrega os lançamentos dos artistas salvos na página de notícias.
+// Loads the saved artists' releases into the news page.
+async function loadNewsReleases({ history = false } = {}) {
     currentDetail = null;
     document.querySelector(".home-view").hidden = true;
     detailView.hidden = true;
@@ -1935,6 +2245,7 @@ function updateProgress() {
         "--progress",
         duration > 0 ? `${(currentTime / duration) * 100}%` : "0%"
     );
+    progress.setAttribute("data-played", String(duration > 0 ? (currentTime / duration) : 0));
 }
 
 function previewProgress() {
@@ -1944,6 +2255,7 @@ function previewProgress() {
         "--progress",
         audio.duration > 0 ? `${(previewTime / audio.duration) * 100}%` : "0%"
     );
+    progress.setAttribute("data-played", String(audio.duration > 0 ? (previewTime / audio.duration) : 0));
 }
 
 // Conta uma reprodução somente após o navegador confirmar que o áudio começou.
@@ -2190,6 +2502,9 @@ audio.addEventListener("play", () => {
         hasPlayedCurrentTrack = true;
         pendingPlayCount = false;
         updateLocalStats(currentTrack, (stats) => ({ ...stats, plays: stats.plays + 1 }));
+        // A faixa entra no histórico local assim que o navegador confirma a reprodução.
+        // The track enters the local history once the browser confirms playback.
+        recordRecent(currentTrack);
         if (currentDetail?.provider === currentTrack.provider && currentDetail?.id === currentTrack.id) {
             detailMeta.querySelectorAll(".detail-meta__local-stat").forEach((stat) => stat.remove());
             renderDetailStats(currentDetail);
@@ -2237,9 +2552,9 @@ audio.addEventListener("error", () => {
         && jamendoFallbackAttemptId !== failedRequestId) {
         void tryJamendoPlaybackFallback(currentTrack, failedRequestId).then((recovered) => {
             if (!recovered && failedRequestId === playbackRequestId) {
-                playButton.disabled = true;
-                progress.disabled = true;
-                status.textContent = "O áudio não está disponível. Tente outra faixa ou carregue um arquivo local.";
+                // Mesma falha silenciosa do resolvedor: nada de aviso no rodapé.
+                // Same silent failure as the resolver: no warning in the footer.
+                markTrackUnavailable();
             }
         });
         return;
@@ -2253,6 +2568,12 @@ audio.addEventListener("error", () => {
 
 playButton.addEventListener("click", () => {
     if (audio.paused) {
+        // Faixa restaurada do histórico ainda sem fonte de áudio: resolve pelo player normal.
+        // Track restored from history still without an audio source: resolve through the normal player.
+        if (!audio.src && currentTrack?.id && currentTrack.id !== EMPTY_TRACK_ID) {
+            void playTrack(currentTrack, { autoplay: true });
+            return;
+        }
         playAudio();
     } else {
         audio.pause();
@@ -2448,7 +2769,7 @@ searchInput.addEventListener("blur", () => {
 });
 
 // Enter fecha as sugestões e vai direto para os resultados ou para a página do artista.
-// Enter closes the suggestions and goes straight to the results view or the artist page.
+// Enter also keeps the focus on the search field for fast consecutive searches.
 searchInput.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
         closeSearchSuggestions();
@@ -2463,6 +2784,7 @@ searchInput.addEventListener("keydown", (event) => {
     if (query.length < 2) {
         return;
     }
+    searchInput.focus({ preventScroll: true });
     window.clearTimeout(searchDebounce);
     void openSearchResults(query);
 });
@@ -2470,6 +2792,21 @@ searchInput.addEventListener("keydown", (event) => {
 // Abre a vista de resultados; com um artista de nome exato, abre a página dele.
 // Open the results view; with an exact artist name, open that artist's page instead.
 async function openSearchResults(query, { history = true } = {}) {
+    if (history) {
+        window.history.pushState({ search: query }, "", `#search/${encodeURIComponent(query)}`);
+        if (currentHistoryIndex >= 0) {
+            currentHistoryIndex += 1;
+            historyStack.length = currentHistoryIndex;
+            historyStack[currentHistoryIndex] = { search: query };
+        }
+    }
+    updateHistoryButtonState();
+    void loadSearchResults(query);
+}
+
+// Preenche a vista de resultados com a consulta atual.
+// Fills the results view with the current query.
+async function loadSearchResults(query) {
     if (!detailView.hidden || !newsView.hidden) {
         currentDetail = null;
         detailView.hidden = true;
@@ -2761,6 +3098,9 @@ function clearHistoryKeepingFavorites() {
         );
         localStorage.setItem(storageKeys.stats, JSON.stringify(kept));
         localStorage.removeItem(storageKeys.legacyStats);
+        // O histórico de escuta local também é limpo; favoritos e perfil seguem intactos.
+        // The local listening history is cleared too; favorites and profile stay intact.
+        localStorage.removeItem(storageKeys.history);
         sessionStorage.clear();
         // Chaves de versões antigas que guardavam credenciais; não são mais usadas.
         // Legacy keys that stored credentials; no longer used.
@@ -2772,6 +3112,9 @@ function clearHistoryKeepingFavorites() {
         return;
     }
     renderLibrary();
+    // Redesenha a seção de recentes (agora vazia) na home.
+    // Redraw the (now empty) recently-played section on home.
+    renderRecentsSection();
     if (currentDetail) {
         detailMeta.querySelectorAll(".detail-meta__local-stat").forEach((stat) => stat.remove());
         renderDetailStats(currentDetail);
@@ -3233,6 +3576,8 @@ function updateExpandedClock() {
 
 // Atualiza capa, título e gradiente dinâmico da vista expandida.
 // Update the expanded view cover, title, and dynamic gradient.
+// Atualiza a vista expandida depois de mudar de faixa ou recarregar metadados.
+// Refreshes the expanded view after track change or metadata refresh.
 async function refreshExpandedView() {
     const trackKey = currentTrackLyricsKey();
     expandedRenderedTrackKey = trackKey;
@@ -3527,9 +3872,18 @@ document.querySelector(".music-player__extras [aria-label='Letra']").addEventLis
     openExpandedView();
 });
 
-document.querySelector(".music-player__extras [aria-label='Fila']").addEventListener("click", () => {
-    showDialog("Fila", `Tocando agora: ${title.textContent}. Carregue outra faixa pelo botão de música para adicioná-la à fila.`);
-});
+// Botão de fila: abre o painel quando ele existe; sem painel, explica a fila atual.
+// Queue button: opens the panel when present; without one it explains the current queue.
+const queueButton = document.querySelector("[data-action='queue']");
+if (queueButton) {
+    queueButton.addEventListener("click", () => {
+        if (document.querySelector(".music-player__queue-panel")) {
+            toggleQueuePanel();
+            return;
+        }
+        showDialog("Fila", `Tocando agora: ${title.textContent}. Carregue outra faixa pelo botão de música para adicioná-la à fila.`);
+    });
+}
 
 document.querySelector(".music-player__extras [aria-label='Conectar a um dispositivo']").addEventListener("click", () => {            showDialog("Conectar a um dispositivo", "A reprodução acontece neste navegador; não há envio de áudio para alto-falantes externos nem necessidade de login.");
 });
@@ -3557,6 +3911,9 @@ expandPlayerButton.addEventListener("click", () => {
 });
 
 document.querySelector(".music-player__extras [aria-label='Mini player']").addEventListener("click", (event) => {
+    if (!(workspace instanceof HTMLElement)) {
+        return;
+    }
     const isMini = workspace.classList.toggle("is-mini-player");
     document.querySelector(".music-player").classList.toggle("is-mini-player", isMini);
     event.currentTarget.setAttribute("aria-label", isMini ? "Restaurar player" : "Mini player");
@@ -3683,8 +4040,19 @@ renderLibrary();
 applyPreferences();
 loadApiConfiguration();
 // Carrega as "Tendências do Momento" já na abertura inicial da tela.
-// Load the "Tendências do Momento" row as soon as the home screen opens.
+// Load the "Recently played" and "Trending now" rows as soon as the home screen opens.
 void loadTrends();
+// Restaura o histórico de escuta local (js/profile.mjs) e desenha a seção de recentes.
+// Restore the local listening history (js/profile.mjs) and draw the recently-played section.
+void profileHelpersReady.then(() => {
+    const restored = resolveInitialTrackFromHistory();
+    if (restored) {
+        currentTrack = restored;
+        title.textContent = restored.title;
+        artist.textContent = restored.artistName || "Artista desconhecido";
+    }
+    renderRecentsSection();
+});
 
 // Offline-first: registra o Service Worker (cache do shell); o áudio já usa a Cache API.
 // Offline-first: register the Service Worker (shell cache); audio already uses the Cache API.

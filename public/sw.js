@@ -7,8 +7,21 @@
 //   Static assets use cache first with background revalidation.
 // - /api/ e provedores externos nunca passam por aqui; o áudio usa a Cache API no app.
 //   /api/ and external providers never go through here; audio uses the app's Cache API.
+//
+// [PT] O cache do shell (open-music-hub-shell-v1) é separado do cache de faixas offline do
+//       utilizador (open-music-hub-cache, definido em js/offline.mjs). A ativação limpa apenas
+//       caches de shell antigos e NUNCA toca no áudio baixado pelo utilizador.
+// [EN] The shell cache (open-music-hub-shell-v1) is separate from the user's offline tracks
+//       cache (open-music-hub-cache, defined in js/offline.mjs). Activation cleans only old
+//       shell caches and NEVER touches the user's downloaded audio.
 
-const CACHE_NAME = "omh-shell-v2";
+const SHELL_CACHE_NAME = "open-music-hub-shell-v1";
+// Precisa casar com CACHE_NAME de js/offline.mjs, onde o áudio baixado é persistido.
+// Must match CACHE_NAME in js/offline.mjs, where downloaded audio is persisted.
+const OFFLINE_TRACKS_CACHE_NAME = "open-music-hub-cache";
+// Prefixos de cache geridos por este SW. Qualquer outro cache (ex.: o de faixas offline) é preservado.
+// Cache prefixes managed by this SW. Any other cache (e.g. offline tracks) is preserved.
+const SHELL_CACHE_PREFIXES = ["open-music-hub-shell-", "omh-shell-"];
 
 const SHELL_ASSETS = [
     "./",
@@ -18,6 +31,7 @@ const SHELL_ASSETS = [
     "./css/tailwind.css",
     "./js/config.js",
     "./js/app.js",
+    "./js/profile.mjs",
     "./js/lyrics.mjs",
     "./js/offline.mjs",
     "./js/playback.mjs"
@@ -25,19 +39,24 @@ const SHELL_ASSETS = [
 
 self.addEventListener("install", (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME)
+        caches.open(SHELL_CACHE_NAME)
             .then((cache) => cache.addAll(SHELL_ASSETS))
             .then(() => self.skipWaiting())
     );
 });
 
-// Remove caches de versões antigas ao ativar uma nova versão do worker.
-// Remove caches from older versions when a new worker version activates.
+// Ativação: remove apenas caches de versões antigas do shell. NUNCA remove o cache de
+// faixas offline do utilizador (open-music-hub-cache) nem nenhum cache desconhecido.
+// Activation: removes only caches from older shell versions. It NEVER removes the user's
+// offline tracks cache (open-music-hub-cache) or any unknown cache.
 self.addEventListener("activate", (event) => {
     event.waitUntil(
         caches.keys()
             .then((keys) => Promise.all(
-                keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+                keys
+                    .filter((key) => key !== SHELL_CACHE_NAME && key !== OFFLINE_TRACKS_CACHE_NAME)
+                    .filter((key) => SHELL_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)))
+                    .map((key) => caches.delete(key))
             ))
             .then(() => self.clients.claim())
     );
@@ -46,7 +65,7 @@ self.addEventListener("activate", (event) => {
 async function handleNavigation(request) {
     try {
         const response = await fetch(request);
-        const cache = await caches.open(CACHE_NAME);
+        const cache = await caches.open(SHELL_CACHE_NAME);
         // Guarda a cópia nova para a próxima abertura offline.
         // Store the fresh copy for the next offline launch.
         await cache.put(request, response.clone());
@@ -63,7 +82,7 @@ async function handleStatic(request) {
         .then((response) => {
             if (response.ok) {
                 const copy = response.clone();
-                caches.open(CACHE_NAME)
+                caches.open(SHELL_CACHE_NAME)
                     .then((cache) => cache.put(request, copy))
                     .catch(() => {});
             }
@@ -89,4 +108,15 @@ self.addEventListener("fetch", (event) => {
         return;
     }
     event.respondWith(handleStatic(request));
+});
+
+// Recebe comandos diretos do cliente, como avisos de atualização de cache.
+// Receives direct commands from the client, such as cache-update notices.
+self.addEventListener("message", (event) => {
+    if (!event.data || typeof event.data !== "object") {
+        return;
+    }
+    if (event.data.type === "SKIP_WAITING") {
+        self.skipWaiting();
+    }
 });
