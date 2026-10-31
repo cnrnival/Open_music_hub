@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import handleRequest from "../server.js";
 
-const { selectInvidiousAudioFormat } = handleRequest;
+const {
+    selectInvidiousAudioFormat,
+    selectPipedAudioFormat,
+    isAllowedAudioMimeType,
+    AUDIO_ENGINES,
+    AUDIO_ENGINE_TIMEOUT_MS
+} = handleRequest;
 
 function createResponse() {
     return {
@@ -60,8 +66,39 @@ test("selectInvidiousAudioFormat ignores muxed video and reports missing audio",
     assert.equal(selectInvidiousAudioFormat({
         adaptiveFormats: [{ url: "https://media.example/muxed.mp4", type: "video/mp4", container: "mp4", bitrate: "1" }]
     }), null);
+    assert.equal(selectInvidiousAudioFormat({
+        adaptiveFormats: [{ url: "https://media.example/track.ogg", type: "audio/ogg", container: "ogg", bitrate: "128000" }]
+    }), null);
     assert.equal(selectInvidiousAudioFormat({}), null);
     assert.equal(selectInvidiousAudioFormat(null), null);
+});
+
+test("the audio engine list includes Invidious backups and Piped with a 3s timeout", () => {
+    assert.equal(AUDIO_ENGINE_TIMEOUT_MS, 3000);
+    assert.deepEqual(AUDIO_ENGINES.map((engine) => `${engine.type}:${engine.url}`), [
+        "invidious:https://invidious.f5.si",
+        "invidious:https://inv.us.projectsegfau.lt",
+        "invidious:https://invidious.nerdvpn.de",
+        "invidious:https://invidious.drgns.space",
+        "piped:https://pipedapi.kavin.rocks"
+    ]);
+    assert.equal(isAllowedAudioMimeType("audio/mp4; codecs=\"mp4a.40.2\""), true);
+    assert.equal(isAllowedAudioMimeType("audio/webm"), true);
+    assert.equal(isAllowedAudioMimeType("audio/m4a"), true);
+    assert.equal(isAllowedAudioMimeType("audio/ogg"), false);
+});
+
+test("selectPipedAudioFormat picks a strict audio MIME from audioStreams", () => {
+    const selected = selectPipedAudioFormat({
+        audioStreams: [
+            { url: "https://pipedapi.kavin.rocks/low.m4a", mimeType: "audio/mp4", bitrate: 48000 },
+            { url: "https://pipedapi.kavin.rocks/skip.ogg", mimeType: "audio/ogg", bitrate: 256000 },
+            { url: "https://pipedapi.kavin.rocks/high.webm", mimeType: "audio/webm", bitrate: 160000 }
+        ]
+    });
+    assert.equal(selected.url, "https://pipedapi.kavin.rocks/high.webm");
+    assert.equal(selected.container, "webm");
+    assert.equal(selected.bitrate, 160000);
 });
 
 test("the detail route exposes the same-origin proxy plus the direct audio URL", async () => {
@@ -147,4 +184,60 @@ test("the audio action rejects invalid video ids", async () => {
     const response = createResponse();
     await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=bad%2Fid", headers: {} }, response);
     assert.equal(response.statusCode, 400);
+});
+
+test("a failing Invidious instance falls back to the next audio engine", async () => {
+    const originalFetch = globalThis.fetch;
+    const origins = [];
+    globalThis.fetch = async (input) => {
+        const requested = new URL(input);
+        origins.push(requested.origin);
+        if (requested.origin === "https://invidious.f5.si") {
+            return { ok: false, status: 502, json: async () => ({}) };
+        }
+        return { ok: true, status: 200, json: async () => ({ ...videoWithFormats, videoId: "fallback1" }) };
+    };
+    try {
+        const response = createResponse();
+        await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=fallback1", headers: {} }, response);
+        assert.equal(response.statusCode, 200);
+        assert.equal(JSON.parse(response.body).audioUrl, "/api/invidious?action=stream&id=fallback1&quality=high");
+        assert.deepEqual(origins, [
+            "https://invidious.f5.si",
+            "https://inv.us.projectsegfau.lt"
+        ]);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("Piped supplies audio when every Invidious instance fails", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+        const requested = new URL(input);
+        if (requested.origin === "https://pipedapi.kavin.rocks") {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    title: "Faixa Completa",
+                    uploader: "Artista",
+                    audioStreams: [
+                        { url: "https://pipedapi.kavin.rocks/track.m4a", mimeType: "audio/mp4", bitrate: 128000 }
+                    ]
+                })
+            };
+        }
+        return { ok: false, status: 503, json: async () => ({}) };
+    };
+    try {
+        const response = createResponse();
+        await handleRequest({ method: "GET", url: "/api/invidious?action=audio&id=piped123", headers: {} }, response);
+        assert.equal(response.statusCode, 200);
+        const payload = JSON.parse(response.body);
+        assert.equal(payload.directAudioUrl, "https://pipedapi.kavin.rocks/track.m4a");
+        assert.equal(payload.audio.mimeType, "audio/mp4");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });

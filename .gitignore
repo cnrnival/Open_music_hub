@@ -29,3 +29,13 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 *.local
+
+# Local static audio / Áudio estático local
+/public/music/
+music/
+*.mp3
+*.m4a
+*.mp4
+*.ogg
+*.wav
+*.webm

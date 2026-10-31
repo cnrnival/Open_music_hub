@@ -251,6 +251,9 @@ const API_CONFIG = Object.freeze({
         }),
         invidious: Object.freeze({
             baseUrl: "https://invidious.f5.si/",
+            // Timeout individual por instância do motor de extração (AbortController).
+            // Per-instance timeout for the extraction engine (AbortController).
+            engineTimeoutMs: 3000,
             proxyBasePath: "/api/invidious",
             get searchRoute() {
                 return `${this.proxyBasePath}/search`;

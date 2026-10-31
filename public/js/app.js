@@ -39,6 +39,56 @@ const neutralTrackArtist = "";
 // Placeholder initial id: no real track restored yet.
 const EMPTY_TRACK_ID = "initial-empty";
 
+// [PT/EN] Instâncias públicas do Invidious para fallback rápido
+// [PT/EN] Public Invidious instances for fast fallback
+const INVIDIOUS_INSTANCES = [
+  'https://invidious.f5.si',
+  'https://inv.us.projectsegfau.lt',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.drgns.space'
+];
+
+/**
+ * [PT] Extrai o fluxo de áudio com timeout rápido e fallback de instâncias.
+ * [EN] Extracts audio stream with fast timeout and instance fallback.
+ */
+async function fetchAudioFast(title, artist) {
+  const query = encodeURIComponent(`${title} ${artist}`);
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500); // Max 3.5s por tentativa
+
+      const searchRes = await fetch(`${instance}/api/v1/search?q=${query}&type=video`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      if (!searchData.length) continue;
+
+      const videoId = searchData[0].videoId;
+      const videoRes = await fetch(`${instance}/api/v1/videos/${videoId}`);
+      if (!videoRes.ok) continue;
+
+      const videoData = await videoRes.json();
+      const audioFormat = videoData.adaptiveFormats?.find(f => 
+        f.type && (f.type.includes('audio/mp4') || f.type.includes('audio/webm'))
+      );
+
+      if (audioFormat?.url) {
+        return audioFormat.url; // Retorna imediatamente a primeira URL encontrada
+      }
+    } catch (e) {
+      console.warn(`[PT] Instância ${instance} demorou/falhou. Tentando próxima... / [EN] Instance failed, trying next...`);
+    }
+  }
+
+  return null;
+}
+
 // Perfil e histórico de escuta são funções puras em js/profile.mjs, carregadas sob demanda.
 // Profile and listening history are pure functions in js/profile.mjs, loaded on demand.
 let profileHelpers = null;
@@ -69,6 +119,10 @@ function recordRecent(track) {
         const next = profileHelpers.pushRecent(readRecents(), track);
         localStorage.setItem(storageKeys.history, JSON.stringify(next));
         renderRecentsSection();
+        // [PT] Dispara evento para atualização em tempo real / [EN] Dispatch event for real-time update
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('dataUpdated', { detail: { type: 'history', timestamp: Date.now() } }));
+        }
     } catch (error) {
         console.error("Could not save the listening history.", error);
     }
@@ -379,7 +433,7 @@ function normalizeInvidiousItem(item) {
     // Use the server-resolved audio URL (same-origin proxy) or extract it from adaptiveFormats.
     let audioUrl = item.audioUrl || "";
     if (!audioUrl && Array.isArray(item.adaptiveFormats)) {
-        const audioFormat = item.adaptiveFormats.find((format) => format.container && (format.container === "webm" || format.container === "m4a"));
+        const audioFormat = item.adaptiveFormats.find((format) => isAllowedAudioMimeType(format.type || format.mimeType || format.encoding));
         if (audioFormat && audioFormat.url) {
             audioUrl = audioFormat.url;
         }
@@ -1193,15 +1247,48 @@ function renderTrackRows(tracks) {
     });
 }
 
-// Resolve (e memoriza) a URL de áudio completo do Invidious para uma faixa.
-// Resolve (and memoize) the full Invidious audio URL for a track.
+// Aceita somente os MIME extraíveis: audio/mp4, audio/m4a ou audio/webm.
+// Accept only extractable MIME types: audio/mp4, audio/m4a, or audio/webm.
+function isAllowedAudioMimeType(value) {
+    const mime = String(value || "").toLowerCase().split(";")[0].trim();
+    return mime === "audio/mp4" || mime === "audio/m4a" || mime === "audio/webm";
+}
+
+// Monta as variantes de busca usadas no resgate de fallback.
+// Build the search variants used by fallback rescue.
+function buildAudioSearchQueries(title, artist) {
+    const titleText = String(title || "").trim();
+    const artistText = String(artist || "").trim();
+    return [...new Set([
+        [titleText, artistText].filter(Boolean).join(" "),
+        [artistText, titleText, "Audio"].filter(Boolean).join(" "),
+        [artistText, titleText, "Topic"].filter(Boolean).join(" "),
+        [titleText, artistText].filter(Boolean).join(" ")
+    ].filter(Boolean))];
+}
+
+// Indica se o motor devolveu um formato de áudio válido para reprodução.
+// Whether the engine returned a playable audio format.
+function hasValidExtractedAudio(track) {
+    if (!track) {
+        return false;
+    }
+    if (isAllowedAudioMimeType(track.audioMimeType)) {
+        return Boolean(track.directAudioUrl || track.audioUrl);
+    }
+    const container = String(track.audioContainer || "").toLowerCase();
+    return Boolean((track.directAudioUrl || track.audioUrl) && (container === "m4a" || container === "webm"));
+}
+
+// Resolve (e memoriza) a URL de áudio completo via motor multi-engine (Invidious + Piped).
+// Resolve (and memoize) the full audio URL through the multi-engine motor (Invidious + Piped).
 async function ensureInvidiousAudioUrl(track, requestId, { silent = false } = {}) {
     if (!track || track.provider !== "invidious" || !track.id) {
         return "";
     }
     // A URL memorizada vale apenas para a qualidade atual; trocar de qualidade força nova resolução.
     // The memoized URL is valid only for the current quality; changing it forces a new resolution.
-    if ((track.audioUrl || track.directAudioUrl) && track.audioQuality === preferences.quality) {
+    if ((track.audioUrl || track.directAudioUrl) && track.audioQuality === preferences.quality && hasValidExtractedAudio(track)) {
         return track.directAudioUrl || track.audioUrl;
     }
     if (track.audioUrl || track.directAudioUrl) {
@@ -1209,54 +1296,46 @@ async function ensureInvidiousAudioUrl(track, requestId, { silent = false } = {}
         track.directAudioUrl = "";
     }
     if (!silent) {
-        status.textContent = "Extraindo o áudio completo no Invidious…";
+        status.textContent = "Extraindo o áudio completo…";
     }
-    // A instância pública falha em rajadas; uma segunda tentativa evita erro transitório.
-    // The public instance fails in bursts; one more attempt avoids a transient error.
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-        try {
-            // A qualidade escolhida nas configurações viaja até a seleção de adaptiveFormats.
-            // The quality chosen in settings travels down to the adaptiveFormats selection.
-            const payload = await fetchJson(API_CONFIG.providers.invidious.audioPath(track.id, preferences.quality));
-            if (requestId !== undefined && requestId !== playbackRequestId) {
-                return "";
-            }
-            const audioUrl = payload.audioUrl || payload.audio?.url || "";
-            const directAudioUrl = payload.directAudioUrl || payload.audio?.directUrl || "";
-            if (!audioUrl && !directAudioUrl) {
-                return "";
-            }
-            track.audioUrl = audioUrl;
-            track.directAudioUrl = directAudioUrl;
-            track.audioQuality = preferences.quality;
-            track.audioMimeType = payload.audio?.mimeType || "";
-            track.audioContainer = payload.audio?.container || "";
-            // Reproduz pela URL direta (IP do usuário) e mantém o proxy de mesma origem como alternativa.
-            // Play from the direct URL (user's IP) keeping the same-origin proxy as a fallback.
-            return directAudioUrl || audioUrl;
-        } catch (error) {
-            console.error("Could not resolve the Invidious audio stream.", error);
-            if (attempt === 1) {
-                await new Promise((resolve) => window.setTimeout(resolve, 800));
-            }
+    try {
+        // O servidor percorre as instâncias com timeout de 3s; aqui basta uma chamada.
+        // The server walks instances with a 3s timeout; a single call is enough here.
+        const payload = await fetchJson(API_CONFIG.providers.invidious.audioPath(track.id, preferences.quality));
+        if (requestId !== undefined && requestId !== playbackRequestId) {
+            return "";
         }
+        const audioUrl = payload.audioUrl || payload.audio?.url || "";
+        const directAudioUrl = payload.directAudioUrl || payload.audio?.directUrl || "";
+        const mimeType = payload.audio?.mimeType || "";
+        if ((!audioUrl && !directAudioUrl) || (mimeType && !isAllowedAudioMimeType(mimeType))) {
+            return "";
+        }
+        track.audioUrl = audioUrl;
+        track.directAudioUrl = directAudioUrl;
+        track.audioQuality = preferences.quality;
+        track.audioMimeType = mimeType;
+        track.audioContainer = payload.audio?.container || "";
+        if (!hasValidExtractedAudio(track) && mimeType) {
+            return "";
+        }
+        // Reproduz pela URL direta (IP do usuário) e mantém o proxy de mesma origem como alternativa.
+        // Play from the direct URL (user's IP) keeping the same-origin proxy as a fallback.
+        return directAudioUrl || audioUrl;
+    } catch (error) {
+        console.error("Could not resolve the audio-engine stream.", error);
+        return "";
     }
-    return "";
 }
 
-// Procura o áudio completo de uma faixa de outro catálogo no Invidious (sem prévias de 30s).
-// Look up a catalog track's full audio on Invidious (never the 30-second previews).
+// Procura o áudio completo com variantes de busca até achar um formato válido.
+// Look up full audio with search variants until a valid format is found.
 async function findInvidiousAudioForTrack(track, requestId) {
-    // Duas consultas: "artista + título" é mais preciso, só o título amplia a chance de acerto.
-    // Two queries: "artist + title" is more precise, the title alone widens the chance of a match.
-    const queries = [...new Set([
-        [track.artistName, track.title].filter(Boolean).join(" ").trim(),
-        (track.title || "").trim()
-    ].filter(Boolean))];
+    const queries = buildAudioSearchQueries(track.title, track.artistName);
     if (!queries.length) {
         return "";
     }
-    status.textContent = "Buscando o áudio completo no Invidious…";
+    status.textContent = "Buscando o áudio completo…";
     for (const query of queries) {
         try {
             const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
@@ -1272,7 +1351,7 @@ async function findInvidiousAudioForTrack(track, requestId) {
                 }
                 const resolved = { provider: "invidious", kind: "track", id: String(video.videoId) };
                 const audioUrl = await ensureInvidiousAudioUrl(resolved, requestId, { silent: true });
-                if (!audioUrl) {
+                if (!audioUrl || !hasValidExtractedAudio(resolved)) {
                     continue;
                 }
                 track.invidiousVideoId = resolved.id;
@@ -1283,7 +1362,7 @@ async function findInvidiousAudioForTrack(track, requestId) {
                 return audioUrl;
             }
         } catch (error) {
-            console.error("Could not find a full Invidious audio source.", error);
+            console.error("Could not find a full audio-engine source.", error);
         }
     }
     return "";
@@ -1391,13 +1470,33 @@ function installMediaFallback(track, source) {
     }, { once: true });
 }
 
-// Falha silenciosa e informativa: desativa os controles sem imprimir erro no rodapé ou em toast.
-// Silent, informative failure: disables the controls without printing an error in the footer or as a toast.
+// Após esgotar motores e termos, avisa em toast e tenta a próxima faixa da fila.
+// After engines and search terms are exhausted, toast and try the next queued track.
+let audioFailureSkipRequestId = -1;
+function skipToNextTrackAfterAudioFailure() {
+    if (audioFailureSkipRequestId === playbackRequestId) {
+        return;
+    }
+    audioFailureSkipRequestId = playbackRequestId;
+    const nextIndex = playbackQueueIndex + 1;
+    if (playbackQueueIndex >= 0 && nextIndex < playbackQueue.length) {
+        showToast("Não foi possível obter o áudio desta faixa. Tocando a próxima…");
+        window.setTimeout(() => {
+            playTrack(playbackQueue[nextIndex]);
+        }, 0);
+        return;
+    }
+    showToast("Não foi possível obter o áudio desta faixa.");
+}
+
+// Falha silenciosa no player: o rodapé não mostra erro vermelho.
+// Silent player failure: the footer does not show a red error.
 function markTrackUnavailable() {
     playButton.disabled = true;
     progress.disabled = true;
     status.textContent = "";
     console.warn("Nenhuma fonte de áudio completa foi encontrada para esta faixa.");
+    skipToNextTrackAfterAudioFailure();
 }
 
 // Seleciona uma faixa e resolve o áudio completo, priorizando a cópia offline do Cache API.
@@ -1515,8 +1614,8 @@ async function playTrack(track, { autoplay = true } = {}) {
     }
 
     if (!playableUrl) {
-        // Nenhuma fonte encontrada: o rodapé fica limpo, apenas com título e artista.
-        // No source found: the footer stays clean, showing only title and artist.
+        // Nenhuma fonte encontrada: o rodapé fica limpo; o toast avisa e a fila avança.
+        // No source found: the footer stays clean; a toast warns and the queue advances.
         pendingPlayCount = false;
         markTrackUnavailable();
         return;
@@ -2718,10 +2817,17 @@ audio.addEventListener("ended", async () => {
 });
 audio.addEventListener("stalled", () => {
     if (currentTrack.provider !== "local" && !audio.paused) {
-        status.textContent = "A fonte de áudio está demorando para responder…";
+        // [PT/EN] Removido aviso visual - player exibe apenas título e artista
+        // [PT/EN] Removed visual warning - player shows only title and artist
+        if (status) {
+            status.textContent = "";
+        }
     }
 });
 audio.addEventListener("error", () => {
+    if (!String(audio.currentSrc || audio.src || "")) {
+        return;
+    }
     const failedRequestId = playbackRequestId;
     if (currentTrack.provider !== "local"
         && currentTrack.provider !== "jamendo"
@@ -2739,9 +2845,12 @@ audio.addEventListener("error", () => {
     }
     playButton.disabled = true;
     progress.disabled = true;
-    status.textContent = audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-        ? "Formato não compatível. Tente outra fonte ou carregue um arquivo MP3 ou WAV autorizado."
-        : "Não foi possível carregar o áudio. Tente outra fonte ou carregue um arquivo local.";
+    status.textContent = "";
+    if (currentTrack?.provider === "local") {
+        showToast("Não foi possível carregar este arquivo local.");
+        return;
+    }
+    skipToNextTrackAfterAudioFailure();
 });
 
 playButton.addEventListener("click", () => {
@@ -4265,6 +4374,18 @@ renderLibrary();
 // Density, local files, and the profile name are applied before the first interaction.
 applyPreferences();
 loadApiConfiguration();
+// [PT] Home totalmente dinâmica - limpa conteúdo estático e renderiza dinamicamente
+// [EN] Fully dynamic home - clear static content and render dynamically
+try {
+    const homeView = document.querySelector('.home-view');
+    if (homeView) {
+        // [PT] Remove seções estáticas hardcoded para renderização dinâmica
+        // [EN] Remove hardcoded static sections for dynamic rendering
+        const staticSections = homeView.querySelectorAll('.featured-banner, .home-filters, .quick-picks, .content-section');
+        staticSections.forEach(s => s.remove());
+    }
+} catch(e) { console.error(e); }
+
 // Carrega as "Tendências do Momento" já na abertura inicial da tela.
 // Load the "Recently played" and "Trending now" rows as soon as the home screen opens.
 void loadTrends();
@@ -4278,6 +4399,11 @@ void profileHelpersReady.then(() => {
         artist.textContent = restored.artistName || "Artista desconhecido";
     }
     renderRecentsSection();
+    // [PT] Dispara atualização para renderizar home dinâmica
+    // [EN] Trigger update to render dynamic home
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dataUpdated', { detail: { type: 'init' } }));
+    }
 });
 
 // Offline-first: registra o Service Worker (cache do shell); o áudio já usa a Cache API.

@@ -573,25 +573,29 @@ async function handleDeezerDetail(url, response) {
     });
 }
 
-function delay(milliseconds) {
-    return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
 // Blindado contra SSRF: proxy de áudio aceita somente URLs de instâncias autorizadas.
 // SSRF-hardened: the audio proxy accepts only URLs from authorized instances.
 // Provedores externos nunca são os alvos aqui: cada destino passa por validação de host e de redirect.
 // External providers are never the targets here: every destination goes through host and redirect validation.
 
+// Motor multi-engine: instâncias públicas de backup (Invidious + Piped).
+// Multi-engine motor: public backup instances (Invidious + Piped).
+const AUDIO_ENGINES = [
+    { type: "invidious", url: "https://invidious.f5.si" },
+    { type: "invidious", url: "https://inv.us.projectsegfau.lt" },
+    { type: "invidious", url: "https://invidious.nerdvpn.de" },
+    { type: "invidious", url: "https://invidious.drgns.space" },
+    { type: "piped", url: "https://pipedapi.kavin.rocks" }
+];
+const AUDIO_ENGINE_TIMEOUT_MS = API_CONFIG.providers.invidious.engineTimeoutMs || 3000;
+
 // Allowlist explícita de instâncias de streaming de áudio confiáveis do projeto.
 // Explicit allowlist of trusted audio-streaming instances used by the project.
 const ALLOWED_STREAM_DOMAINS = new Set([
-    "invidious.f5.si",
-    "inv.us.projectsegfau.lt",
-    "invidious.nerdvpn.de",
-    "invidious.drgns.space",
+    ...AUDIO_ENGINES.map((engine) => new URL(engine.url).hostname),
     "piped.video",
-    "pipedapi.kavin.rocks",
-    "api.piped.dev"
+    "api.piped.dev",
+    "pipedproxy.kavin.rocks"
 ]);
 
 // Bloqueia loopback e redes privadas conhecidas usadas em ataques SSRF.
@@ -644,6 +648,18 @@ function hostFromTargetUrl(targetUrl) {
     }
 }
 
+// Aceita instâncias do motor e a CDN de mídia usada por Invidious/Piped.
+// Accepts engine instances plus the media CDN used by Invidious/Piped.
+function isAllowedStreamHost(host) {
+    if (!host) {
+        return false;
+    }
+    if (ALLOWED_STREAM_DOMAINS.has(host)) {
+        return true;
+    }
+    return host === "googlevideo.com" || host.endsWith(".googlevideo.com");
+}
+
 // Valida o destino da requisição e o rastreia até o limite de hops permitido.
 // Validates the request target and follows it up to the allowed hop limit.
 async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
@@ -659,7 +675,7 @@ async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
         if (isBlockedIp(host)) {
             return { ok: false, error: "Target host is blocked." };
         }
-        if (!ALLOWED_STREAM_DOMAINS.has(host)) {
+        if (!isAllowedStreamHost(host)) {
             return { ok: false, error: "Target host is not allowed." };
         }
 
@@ -678,7 +694,7 @@ async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
                 const location = upstream.headers.get("location") || "";
                 if (typeof location === "string" && location.trim() !== "") {
                     const nextHost = hostFromTargetUrl(location);
-                    if (!nextHost || isBlockedIp(nextHost) || !ALLOWED_STREAM_DOMAINS.has(nextHost)) {
+                    if (!nextHost || isBlockedIp(nextHost) || !isAllowedStreamHost(nextHost)) {
                         return { ok: false, error: "Redirect target is not allowed." };
                     }
                     current = location.trim();
@@ -700,7 +716,7 @@ async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
         const location = upstream.headers.get("location") || "";
         if (typeof location === "string" && location.trim() !== "") {
             const nextHost = hostFromTargetUrl(location);
-            if (!nextHost || isBlockedIp(nextHost) || !ALLOWED_STREAM_DOMAINS.has(nextHost)) {
+            if (!nextHost || isBlockedIp(nextHost) || !isAllowedStreamHost(nextHost)) {
                 return { ok: false, error: "Redirect target is not allowed." };
             }
             current = location.trim();
@@ -714,40 +730,121 @@ async function resolveSafeStreamUrl(targetUrl, maxRedirects = 4) {
 }
 
 
-// Consulta metadados no Invidious. A instância pública falha de forma intermitente (5xx),
-// então repetimos algumas vezes com backoff antes de desistir.
-// Fetch Invidious metadata. The public instance fails intermittently (5xx),
-// so we retry a few times with backoff before giving up.
-async function fetchInvidious(resourcePath, { attempts = 4 } = {}) {
-    const url = new URL(resourcePath, API_CONFIG.providers.invidious.baseUrl);
-    // 403/408/425/429 e 5xx são falhas transitórias da instância pública e valem nova tentativa.
-    // 403/408/425/429 and 5xx are transient public-instance failures and are worth retrying.
-    const retryableStatuses = new Set([403, 408, 425, 429]);
+// Monta a URL absoluta de um recurso contra a instância do motor.
+// Build an absolute resource URL against an engine instance.
+function audioEngineUrl(engine, resourcePath) {
+    const base = String(engine.url || "").endsWith("/") ? engine.url : `${engine.url}/`;
+    return new URL(resourcePath, base);
+}
+
+// Consulta JSON com timeout individual de 3s via AbortController.
+// Fetch JSON with a 3s per-attempt timeout via AbortController.
+async function fetchAudioEngineJson(targetUrl) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AUDIO_ENGINE_TIMEOUT_MS);
+    try {
+        const upstream = await fetch(targetUrl, { signal: controller.signal });
+        if (!upstream.ok) {
+            throw new Error(`Audio engine responded with HTTP ${upstream.status}.`);
+        }
+        const payload = await upstream.json();
+        if (payload && payload.error) {
+            throw new Error(String(payload.error));
+        }
+        return payload;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// Extrai o ID de vídeo de um item de busca do Piped.
+// Extract the video ID from a Piped search item.
+function pipedVideoIdFromItem(item) {
+    const raw = String(item?.url || item?.id || "");
+    const watchMatch = raw.match(/[?&]v=([A-Za-z0-9_-]{1,32})/);
+    if (watchMatch) {
+        return watchMatch[1];
+    }
+    if (/^[A-Za-z0-9_-]{1,32}$/.test(raw)) {
+        return raw;
+    }
+    return "";
+}
+
+// Normaliza um resultado de busca do Piped para o formato compartilhado do catálogo.
+// Normalize a Piped search hit into the shared catalog metadata shape.
+function normalizePipedSearchItem(item) {
+    const videoId = pipedVideoIdFromItem(item);
+    const thumbnail = String(item.thumbnail || item.thumbnailUrl || "");
+    return {
+        videoId,
+        title: String(item.title || ""),
+        description: "",
+        author: String(item.uploaderName || item.uploader || ""),
+        authorId: String(item.uploaderUrl || "").replace(/^.*\//, ""),
+        authorUrl: String(item.uploaderUrl || ""),
+        videoThumbnails: thumbnail ? [{ quality: "high", url: thumbnail, width: 0, height: 0 }] : [],
+        lengthSeconds: Number(item.duration) || 0,
+        viewCount: Number(item.views) || 0,
+        publishedText: String(item.uploadedDate || item.uploaded || "")
+    };
+}
+
+// Normaliza metadados de um vídeo resolvido no Piped.
+// Normalize metadata from a Piped stream payload.
+function normalizePipedVideoMetadata(video, videoId) {
+    const thumbnail = String(video.thumbnailUrl || video.thumbnail || "");
+    return {
+        videoId: String(videoId || ""),
+        title: String(video.title || ""),
+        description: String(video.description || ""),
+        author: String(video.uploader || video.uploaderName || ""),
+        authorId: String(video.uploaderUrl || "").replace(/^.*\//, ""),
+        authorUrl: String(video.uploaderUrl || ""),
+        videoThumbnails: thumbnail ? [{ quality: "high", url: thumbnail, width: 0, height: 0 }] : [],
+        lengthSeconds: Number(video.duration) || 0,
+        viewCount: Number(video.views) || 0,
+        publishedText: String(video.uploadDate || video.uploadedDate || "")
+    };
+}
+
+// Aceita somente os MIME de áudio extraíveis pelo player.
+// Accept only the audio MIME types the player can extract.
+function isAllowedAudioMimeType(value) {
+    const mime = String(value || "").toLowerCase().split(";")[0].trim();
+    return mime === "audio/mp4" || mime === "audio/m4a" || mime === "audio/webm";
+}
+
+// Percorre as instâncias até obter resultados de busca.
+// Walk the instances until a search returns video results.
+async function searchAcrossAudioEngines(query) {
     let lastError;
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    for (const engine of AUDIO_ENGINES) {
         try {
-            const upstream = await fetch(url, { signal: AbortSignal.timeout(10000) });
-            if (upstream.ok) {
-                const payload = await upstream.json();
-                if (payload.error) {
-                    throw new Error(String(payload.error));
-                }
-                return payload;
-            }
-            lastError = new Error(`Invidious responded with HTTP ${upstream.status}.`);
-            if (upstream.status < 500 && !retryableStatuses.has(upstream.status)) {
-                throw lastError;
+            const resourcePath = engine.type === "piped"
+                ? `search?q=${encodeURIComponent(query)}&filter=videos`
+                : API_CONFIG.providers.invidious.endpoints.search(query);
+            const payload = await fetchAudioEngineJson(audioEngineUrl(engine, resourcePath));
+            const videos = engine.type === "piped"
+                ? (Array.isArray(payload) ? payload : payload.items || payload.results || [])
+                    .map(normalizePipedSearchItem)
+                    .filter((video) => video.videoId)
+                    .slice(0, 12)
+                : (Array.isArray(payload) ? payload : [])
+                    .filter((video) => video.videoId && (video.type === "video" || !video.type))
+                    .slice(0, 12)
+                    .map(normalizeInvidiousMetadata);
+            if (videos.length) {
+                return videos;
             }
         } catch (error) {
             lastError = error;
         }
-        if (attempt < attempts) {
-            // Backoff com jitter para não sincronizar novas tentativas no mesmo instante.
-            // Backoff with jitter so retries do not all fire at the same moment.
-            await delay(400 * attempt + Math.floor(Math.random() * 250));
-        }
     }
-    throw lastError;
+    if (lastError) {
+        throw lastError;
+    }
+    return [];
 }
 
 // Return only fields used for catalog cards and detail pages, never adaptive or audio formats.
@@ -782,10 +879,7 @@ async function handleInvidiousSearch(url, response) {
         sendJson(response, 400, { error: "A search term of 1 to 120 characters is required." });
         return;
     }
-    const results = await fetchInvidious(API_CONFIG.providers.invidious.endpoints.search(query));
-    const videos = Array.isArray(results)
-        ? results.filter((video) => video.type === "video" && video.videoId).slice(0, 12).map(normalizeInvidiousMetadata)
-        : [];
+    const videos = await searchAcrossAudioEngines(query);
     sendJson(response, 200, { provider: "invidious", results: videos });
 }
 
@@ -800,46 +894,58 @@ function normalizeStreamQuality(value) {
 // Pick an audio-only stream (m4a/webm) from adaptiveFormats, ignoring muxed video tracks.
 // - low: menor bitrate • normal: mais próximo de 128 kbps • high: maior bitrate.
 // - low: lowest bitrate • normal: closest to 128 kbps • high: highest bitrate.
-function selectInvidiousAudioFormat(video, quality = "high") {
-    const formats = Array.isArray(video?.adaptiveFormats) ? video.adaptiveFormats : [];
-    const audioFormats = formats.filter((format) => {
-        if (!format || !format.url) {
-            return false;
-        }
-        const mimeType = String(format.type || format.encoding || "").toLowerCase();
-        const container = String(format.container || "").toLowerCase();
-        if (mimeType.startsWith("video/")) {
-            return false;
-        }
-        return mimeType.startsWith("audio/")
-            || container === "m4a"
-            || container === "webm"
-            || container === "mp4";
-    });
+function pickAudioFormatByQuality(audioFormats, quality = "high") {
+    if (!audioFormats.length) {
+        return null;
+    }
     const tier = normalizeStreamQuality(quality);
-    audioFormats.sort((left, right) => (Number(left.bitrate) || 0) - (Number(right.bitrate) || 0));
-    let selected;
+    const ranked = [...audioFormats].sort((left, right) => (Number(left.bitrate) || 0) - (Number(right.bitrate) || 0));
     if (tier === "low") {
-        selected = audioFormats[0];
-    } else if (tier === "normal") {
-        selected = audioFormats.reduce((closest, format) => (
+        return ranked[0];
+    }
+    if (tier === "normal") {
+        return ranked.reduce((closest, format) => (
             Math.abs((Number(format.bitrate) || 0) - 128000)
                 < Math.abs((Number(closest.bitrate) || 0) - 128000)
                 ? format
                 : closest
-        ), audioFormats[0]);
-    } else {
-        selected = audioFormats[audioFormats.length - 1];
+        ), ranked[0]);
     }
+    return ranked[ranked.length - 1];
+}
+
+function selectInvidiousAudioFormat(video, quality = "high") {
+    const formats = Array.isArray(video?.adaptiveFormats) ? video.adaptiveFormats : [];
+    const audioFormats = formats.filter((format) => format?.url && isAllowedAudioMimeType(format.type || format.encoding || format.mimeType));
+    const selected = pickAudioFormatByQuality(audioFormats, quality);
     if (!selected) {
         return null;
     }
     return {
         url: String(selected.url),
-        mimeType: String(selected.type || ""),
+        mimeType: String(selected.type || selected.mimeType || ""),
         container: String(selected.container || ""),
         bitrate: Number(selected.bitrate) || 0,
         contentLength: Number(selected.clen || selected.contentLength) || 0
+    };
+}
+
+// Escolhe um fluxo somente de áudio nos audioStreams do Piped, com o mesmo filtro MIME.
+// Pick an audio-only stream from Piped audioStreams using the same MIME filter.
+function selectPipedAudioFormat(streams, quality = "high") {
+    const formats = Array.isArray(streams?.audioStreams) ? streams.audioStreams : [];
+    const audioFormats = formats.filter((format) => format?.url && isAllowedAudioMimeType(format.mimeType || format.type));
+    const selected = pickAudioFormatByQuality(audioFormats, quality);
+    if (!selected) {
+        return null;
+    }
+    const mimeType = String(selected.mimeType || selected.type || "");
+    return {
+        url: String(selected.url),
+        mimeType,
+        container: mimeType.includes("webm") ? "webm" : "m4a",
+        bitrate: Number(selected.bitrate) || 0,
+        contentLength: Number(selected.contentLength) || 0
     };
 }
 
@@ -856,43 +962,58 @@ async function resolveInvidiousAudio(videoId, { allowMissing = false, force = fa
     if (!force && cached && Date.now() - cached.resolvedAt < INVIDIOUS_AUDIO_CACHE_TTL_MS) {
         return cached;
     }
-    let video;
-    try {
-        video = await fetchInvidious(API_CONFIG.providers.invidious.endpoints.video(videoId));
-    } catch (error) {
-        // Se a instância falhar depois de todas as tentativas, reutilizamos o último resultado conhecido.
-        // If the instance fails after every attempt, reuse the last known good result.
-        if (cached?.audio) {
-            console.warn(`Serving stale Invidious metadata for ${videoId}.`, error.message);
-            invidiousAudioCache.set(cacheKey, { ...cached, resolvedAt: Date.now() });
-            return cached;
+    let lastError;
+    let lastItem = null;
+    // Rotação de instâncias: a primeira que devolver um formato de áudio válido vence.
+    // Instance rotation: the first engine that returns a valid audio format wins.
+    for (const engine of AUDIO_ENGINES) {
+        try {
+            const resourcePath = engine.type === "piped"
+                ? `streams/${encodeURIComponent(videoId)}`
+                : API_CONFIG.providers.invidious.endpoints.video(videoId);
+            const payload = await fetchAudioEngineJson(audioEngineUrl(engine, resourcePath));
+            const item = engine.type === "piped"
+                ? normalizePipedVideoMetadata(payload, videoId)
+                : normalizeInvidiousMetadata(payload);
+            lastItem = item;
+            const audio = engine.type === "piped"
+                ? selectPipedAudioFormat(payload, tier)
+                : selectInvidiousAudioFormat(payload, tier);
+            if (!audio) {
+                continue;
+            }
+            // Resolve URLs relativas contra a instância para que o proxy sempre busque um host HTTPS.
+            // Resolve relative URLs against the instance so the proxy always targets an HTTPS host.
+            const absoluteUrl = new URL(audio.url, audioEngineUrl(engine, ""));
+            if (absoluteUrl.protocol !== "https:") {
+                lastError = new Error("Audio engine returned a non-HTTPS audio stream.");
+                lastError.statusCode = 502;
+                continue;
+            }
+            const resolved = {
+                item,
+                audio: { ...audio, url: absoluteUrl.href },
+                resolvedAt: Date.now()
+            };
+            invidiousAudioCache.set(cacheKey, resolved);
+            return resolved;
+        } catch (error) {
+            lastError = error;
         }
-        throw error;
     }
-    const audio = selectInvidiousAudioFormat(video, tier);
-    if (!audio) {
-        if (allowMissing) {
-            return { item: normalizeInvidiousMetadata(video), audio: null, resolvedAt: Date.now() };
-        }
-        const error = new Error("No audio-only stream is available for this video.");
-        error.statusCode = 404;
-        throw error;
+    // Se todas as instâncias falharem, reutilizamos o último resultado conhecido.
+    // If every instance fails, reuse the last known good result.
+    if (cached?.audio) {
+        console.warn(`Serving stale audio-engine metadata for ${videoId}.`, lastError?.message);
+        invidiousAudioCache.set(cacheKey, { ...cached, resolvedAt: Date.now() });
+        return cached;
     }
-    // Resolve URLs relativas contra a instância para que o proxy sempre busque um host HTTPS.
-    // Resolve relative URLs against the instance so the proxy always targets an HTTPS host.
-    const absoluteUrl = new URL(audio.url, API_CONFIG.providers.invidious.baseUrl);
-    if (absoluteUrl.protocol !== "https:") {
-        const error = new Error("Invidious returned a non-HTTPS audio stream.");
-        error.statusCode = 502;
-        throw error;
+    if (allowMissing && lastItem) {
+        return { item: lastItem, audio: null, resolvedAt: Date.now() };
     }
-    const resolved = {
-        item: normalizeInvidiousMetadata(video),
-        audio: { ...audio, url: absoluteUrl.href },
-        resolvedAt: Date.now()
-    };
-    invidiousAudioCache.set(cacheKey, resolved);
-    return resolved;
+    const error = lastError || new Error("No audio-only stream is available for this video.");
+    error.statusCode = error.statusCode || 404;
+    throw error;
 }
 
 function invidiousStreamPath(videoId, quality = "high") {
@@ -1230,3 +1351,7 @@ if (require.main === module) {
 
 module.exports = handleRequest;
 module.exports.selectInvidiousAudioFormat = selectInvidiousAudioFormat;
+module.exports.selectPipedAudioFormat = selectPipedAudioFormat;
+module.exports.isAllowedAudioMimeType = isAllowedAudioMimeType;
+module.exports.AUDIO_ENGINES = AUDIO_ENGINES;
+module.exports.AUDIO_ENGINE_TIMEOUT_MS = AUDIO_ENGINE_TIMEOUT_MS;

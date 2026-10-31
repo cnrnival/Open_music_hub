@@ -2478,9 +2478,10 @@ input:focus-visible {
 .toast {
 	position: fixed;
 	z-index: 10;
-	bottom: 92px;
-	left: 50%;
-	max-width: min(500px, calc(100vw - 32px));
+	right: 16px;
+	bottom: 96px;
+	left: auto;
+	max-width: min(360px, calc(100vw - 32px));
 	padding: 11px 16px;
 	border: 1px solid #414141;
 	border-radius: 8px;
@@ -2489,13 +2490,13 @@ input:focus-visible {
 	box-shadow: 0 5px 24px #0008;
 	opacity: 0;
 	pointer-events: none;
-	transform: translate(-50%, 10px);
+	transform: translateY(10px);
 	transition: opacity 150ms ease, transform 150ms ease;
 }
 
 .toast.is-visible {
 	opacity: 1;
-	transform: translate(-50%, 0);
+	transform: translateY(0);
 }
 
 .artist-grid.is-expanded {
