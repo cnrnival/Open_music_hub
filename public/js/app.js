@@ -128,16 +128,48 @@ function recordRecent(track) {
     }
 }
 
-// Última faixa ouvida vira o estado inicial do player; sem histórico, mantém o estado neutro.
-// The last played track becomes the player's initial state; with no history, keep the neutral state.
+// [PT] Resgata a última faixa ouvida do histórico local (localStorage) para inicializar o player.
+// [EN] Retrieves the last played track from local history (localStorage) to initialize the player.
+// [PT] Suporta chaves 'open-music-hub:recents' e 'open_music_hub_history' para compatibilidade.
+// [EN] Supports 'open-music-hub:recents' and 'open_music_hub_history' keys for compatibility.
 function resolveInitialTrackFromHistory() {
     try {
-        const [latest] = readRecents();
+        // [PT] Tenta ler do histórico padrão primeiro / [EN] Try to read from default history first
+        let recents = [];
+        if (profileHelpers) {
+            recents = readRecents();
+        }
+        // [PT] Fallback para chave alternativa especificada no requisito
+        // [EN] Fallback to alternative key specified in requirement
+        if (!recents.length) {
+            try {
+                const altHistory = localStorage.getItem('open_music_hub_history');
+                if (altHistory) {
+                    recents = JSON.parse(altHistory);
+                    if (!Array.isArray(recents)) recents = [];
+                }
+            } catch (e) {
+                console.warn('[PT] Erro ao ler histórico alternativo / [EN] Error reading alternative history:', e);
+            }
+        }
+        const [latest] = recents;
         if (!latest || !latest.title) {
             return null;
         }
-        const track = profileHelpers.trackFromRecent(latest);
-        return track || null;
+        if (profileHelpers && profileHelpers.trackFromRecent) {
+            const track = profileHelpers.trackFromRecent(latest);
+            return track || null;
+        }
+        // [PT] Fallback sem profileHelpers / [EN] Fallback without profileHelpers
+        return {
+            provider: latest.provider || 'invidious',
+            kind: 'track',
+            id: latest.id || latest.videoId || '',
+            title: latest.title,
+            artistName: latest.artistName || latest.author || '',
+            image: latest.image || latest.thumbnail,
+            previewUrl: undefined
+        };
     } catch {
         return null;
     }
@@ -191,6 +223,7 @@ function renderRecentsSection() {
 const detailView = document.querySelector(".detail-view");
 const newsView = document.querySelector(".news-view");
 const profileView = document.querySelector(".profile-view");
+const trendsView = document.getElementById("trends-view");
 const newsStatus = document.querySelector(".news-status");
 const newsGrid = document.querySelector(".news-grid");
 const detailHeaderArt = document.querySelector(".detail-header__art");
@@ -246,6 +279,9 @@ let homeFilter = "all";
 // Local navigation stack used by the back/forward arrows.
 let historyStack = [];
 let currentHistoryIndex = -1;
+// Estado de conexão: usado para tocar do Cache API quando não há rede.
+// Connection state: used to play from the Cache API when there is no network.
+let isOnline = typeof navigator !== "undefined" && navigator.onLine;
 let alphabeticalSort = false;
 let librarySequence = libraryList.children.length;
 
@@ -269,7 +305,14 @@ const defaultPreferences = Object.freeze({
     autoplay: true,
     gapless: false,
     quality: "normal",
-    profileName: ""
+    profileName: "",
+    // Tema visual (estilo Spicetify): dark | pink | green | purple
+    // Visual theme (Spicetify-style): dark | pink | green | purple
+    theme: "dark",
+    // Foto e banner do perfil (data URLs guardadas apenas neste navegador).
+    // Profile photo and banner (data URLs kept only in this browser).
+    profilePhoto: "",
+    profileBanner: ""
 });
 let preferences = readPreferences();
 
@@ -290,6 +333,9 @@ function readPreferences() {
             autoplay: typeof stored.autoplay === "boolean" ? stored.autoplay : defaultPreferences.autoplay,
             gapless: typeof stored.gapless === "boolean" ? stored.gapless : defaultPreferences.gapless,
             quality: ["low", "normal", "high"].includes(stored.quality) ? stored.quality : defaultPreferences.quality,
+            theme: ["dark", "pink", "green", "purple"].includes(stored.theme) ? stored.theme : defaultPreferences.theme,
+            profilePhoto: typeof stored.profilePhoto === "string" ? stored.profilePhoto : defaultPreferences.profilePhoto,
+            profileBanner: typeof stored.profileBanner === "string" ? stored.profileBanner : defaultPreferences.profileBanner,
             profileName
         };
     } catch (error) {
@@ -904,6 +950,9 @@ async function openDetail(item, { history = true } = {}) {
     newsView.hidden = true;
     if (profileView) {
         profileView.hidden = true;
+    }
+    if (trendsView) {
+        trendsView.hidden = true;
     }
     detailView.hidden = false;
     detailKind.textContent = item.kind === "artist"
@@ -2307,6 +2356,9 @@ async function loadNewsReleases({ history = false } = {}) {
     if (profileView) {
         profileView.hidden = true;
     }
+    if (trendsView) {
+        trendsView.hidden = true;
+    }
     newsView.hidden = false;
     newsStatus.textContent = "Carregando lançamentos dos artistas salvos…";
     newsGrid.replaceChildren();
@@ -3101,6 +3153,9 @@ async function loadSearchResults(query) {
         if (profileView) {
             profileView.hidden = true;
         }
+        if (trendsView) {
+            trendsView.hidden = true;
+        }
         document.querySelector(".home-view").hidden = false;
     }
     if (searchInput.value.trim() !== query) {
@@ -3436,9 +3491,20 @@ function renderSettingsControls() {
     settingsDialog.querySelectorAll("[data-density-option]").forEach((button) => {
         button.setAttribute("aria-pressed", String(button.dataset.densityOption === preferences.density));
     });
+    settingsDialog.querySelectorAll("[data-theme-option]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.themeOption === preferences.theme));
+    });
     const profileInput = settingsDialog.querySelector('[data-setting="profileName"]');
     if (profileInput && document.activeElement !== profileInput) {
         profileInput.value = preferences.profileName;
+    }
+    const photoInput = settingsDialog.querySelector('[data-setting="profilePhoto"]');
+    if (photoInput) {
+        photoInput.value = "";
+    }
+    const bannerInput = settingsDialog.querySelector('[data-setting="profileBanner"]');
+    if (bannerInput) {
+        bannerInput.value = "";
     }
     if (settingsLocalFileActions) {
         settingsLocalFileActions.hidden = !preferences.showLocalFiles;
@@ -3475,11 +3541,67 @@ function applyProfileIdentity() {
     profileButton.title = `Perfil local • ${name}`;
 }
 
+// Aplica a foto de perfil (data URL) ao ícone do cabeçalho e ao avatar da vista de perfil.
+// Applies the profile photo (data URL) to the header icon and profile view avatar.
+function applyProfilePhoto() {
+    const photo = preferences.profilePhoto || "";
+    const buttonAvatar = profileButtonContent;
+    const viewAvatar = document.querySelector("#profileViewAvatar");
+    if (photo) {
+        if (buttonAvatar) {
+            buttonAvatar.style.backgroundImage = `url("${photo}")`;
+            buttonAvatar.style.backgroundSize = "cover";
+            buttonAvatar.style.backgroundPosition = "center";
+            buttonAvatar.textContent = "";
+            buttonAvatar.classList.add("has-photo");
+        }
+        if (viewAvatar) {
+            viewAvatar.style.backgroundImage = `url("${photo}")`;
+            viewAvatar.style.backgroundSize = "cover";
+            viewAvatar.style.backgroundPosition = "center";
+            viewAvatar.textContent = "";
+            viewAvatar.classList.add("has-photo");
+        }
+    } else {
+        if (buttonAvatar) {
+            buttonAvatar.style.backgroundImage = "";
+            buttonAvatar.classList.remove("has-photo");
+            const initial = ((preferences.profileName || "").match(/[\p{L}\p{N}]/u) || ["O"])[0].toLocaleUpperCase("pt-BR");
+            buttonAvatar.textContent = initial;
+        }
+        if (viewAvatar) {
+            viewAvatar.style.backgroundImage = "";
+            viewAvatar.classList.remove("has-photo");
+        }
+    }
+}
+
+// Aplica o banner do perfil (data URL) ao cabeçalho da vista de perfil.
+// Applies the profile banner (data URL) to the profile view header.
+function applyProfileBanner() {
+    const banner = preferences.profileBanner || "";
+    const header = document.querySelector(".profile-header");
+    if (header) {
+        if (banner) {
+            header.style.backgroundImage = `linear-gradient(145deg, #0002, #0004), url("${banner}")`;
+            header.style.backgroundSize = "cover";
+            header.style.backgroundPosition = "center";
+        } else {
+            header.style.backgroundImage = "linear-gradient(145deg, #c32974 0%, #4b2a52 55%, #181818 100%)";
+        }
+    }
+}
+
 // Aplica densidade, arquivos locais e identidade do perfil em tempo real.
 // Apply density, local files, and profile identity in real time.
 function applyPreferences() {
     document.documentElement.dataset.density = preferences.density;
     document.documentElement.dataset.libraryDensity = preferences.compactLibrary ? "compact" : "comfortable";
+    document.documentElement.dataset.theme = preferences.theme;
+    // Aplica foto e banner do perfil ao ícone e cabeçalho da vista de perfil.
+    // Applies profile photo and banner to the icon and profile view header.
+    applyProfilePhoto();
+    applyProfileBanner();
     applyLocalFileVisibility();
     applyProfileIdentity();
     renderSettingsControls();
@@ -3539,6 +3661,13 @@ if (settingsDialog) {
         });
     });
 
+    settingsDialog.querySelectorAll("[data-theme-option]").forEach((button) => {
+        button.addEventListener("click", () => {
+            setPreference("theme", button.dataset.themeOption);
+            setSettingsStatus(`Tema visual: ${button.textContent.trim()}.`);
+        });
+    });
+
     // O nome é salvo a cada tecla, direto no navegador.
     // The name is saved on every keystroke, right into the browser.
     settingsDialog.querySelector('[data-setting="profileName"]')?.addEventListener("input", (event) => {
@@ -3550,6 +3679,36 @@ if (settingsDialog) {
         if (profileView && !profileView.hidden) {
             renderProfileView();
         }
+    });
+
+    settingsDialog.querySelector('[data-setting="profilePhoto"]')?.addEventListener("change", (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) {
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            preferences = { ...preferences, profilePhoto: reader.result };
+            savePreferences();
+            applyPreferences();
+            setSettingsStatus("Foto do perfil atualizada.");
+        };
+        reader.readAsDataURL(file);
+    });
+
+    settingsDialog.querySelector('[data-setting="profileBanner"]')?.addEventListener("change", (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) {
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            preferences = { ...preferences, profileBanner: reader.result };
+            savePreferences();
+            applyPreferences();
+            setSettingsStatus("Banner do perfil atualizado.");
+        };
+        reader.readAsDataURL(file);
     });
 
     settingsDialog.querySelectorAll("[data-settings-action]").forEach((button) => {
@@ -4363,6 +4522,44 @@ window.addEventListener("beforeunload", () => {
         URL.revokeObjectURL(url);
     }
     window.clearTimeout(toastTimeout);
+});
+
+// Detecção automática de conexão: atualiza isOnline e re-renderiza a home
+// para tocar do Cache API quando não há rede.
+// Automatic connection detection: updates isOnline and re-renders home
+// to play from the Cache API when there is no network.
+function syncOnlineStatus() {
+    const next = typeof navigator !== "undefined" && navigator.onLine;
+    if (next === isOnline) {
+        return;
+    }
+    isOnline = next;
+    if (!isOnline) {
+        showToast("Sem conexão: reproduzindo do cache offline quando disponível.");
+    } else {
+        showToast("Conexão restaurada.");
+    }
+    void renderHomeFromStorage();
+}
+window.addEventListener("online", syncOnlineStatus);
+window.addEventListener("offline", syncOnlineStatus);
+
+// Atualização em tempo real da home: ao favoritar, pré-salvar ou ouvir uma
+// faixa, os blocos da home atualizam sem recarregar a página.
+// Real-time home updates: when favoriting, pre-saving, or playing a track,
+// home blocks refresh without reloading the page.
+function renderHomeFromStorage() {
+    if (document.querySelector(".home-view").hidden) {
+        return;
+    }
+    renderRecentsSection();
+    renderLibrary();
+    if (trendsView && !trendsView.hidden) {
+        void loadTrends();
+    }
+}
+window.addEventListener("dataUpdated", () => {
+    renderHomeFromStorage();
 });
 
 updateVolume();

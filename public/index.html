@@ -158,7 +158,7 @@
 			</section>
 			</div>
 
-			<section class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
+			<section id="trends-view" class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
 				<div class="section-heading"><h2 id="trends-title">Tendências do Momento</h2><span class="trends-status" role="status"></span></div>
 				<div class="trends-grid"></div>
 			</section>
@@ -395,6 +395,18 @@
 					</div>
 					<button class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="Mostrar painel do que está tocando agora ao clicar no play" data-setting="showNowPlayingPanel"><span class="settings-switch__thumb" aria-hidden="true"></span></button>
 				</div>
+				<div class="settings-row">
+					<div class="settings-row__text">
+						<strong>Tema visual</strong>
+						<span class="settings-row__hint">Estilo Spicetify: escolha a identidade visual do app.</span>
+					</div>
+					<div class="settings-segmented" role="group" aria-label="Tema visual">
+						<button type="button" data-theme-option="dark" aria-pressed="true">Escuro</button>
+						<button type="button" data-theme-option="pink" aria-pressed="false">Lunar Pink</button>
+						<button type="button" data-theme-option="green" aria-pressed="false">Verde</button>
+						<button type="button" data-theme-option="purple" aria-pressed="false">Roxo</button>
+					</div>
+				</div>
 			</section>
 
 			<section class="settings-section" id="settings-playback" aria-labelledby="settings-playback-title">
@@ -437,6 +449,20 @@
 						<input id="settings-profile-name" type="text" maxlength="40" autocomplete="nickname" placeholder="Como quer ser chamado?" data-setting="profileName">
 					</label>
 					<p class="settings-section__note">Seu nome aparece no ícone do perfil e fica guardado neste navegador. Nenhum login é necessário.</p>
+				</div>
+				<div class="settings-row settings-row--stacked">
+					<label class="settings-field settings-field--block" for="settings-profile-photo">
+						<span>Foto do perfil</span>
+						<input id="settings-profile-photo" type="file" accept="image/*" aria-label="Foto do perfil" data-setting="profilePhoto">
+					</label>
+					<p class="settings-section__note">A foto é convertida em data URL e guardada apenas neste navegador.</p>
+				</div>
+				<div class="settings-row settings-row--stacked">
+					<label class="settings-field settings-field--block" for="settings-profile-banner">
+						<span>Banner do perfil</span>
+						<input id="settings-profile-banner" type="file" accept="image/*" aria-label="Banner do perfil" data-setting="profileBanner">
+					</label>
+					<p class="settings-section__note">O banner aparece no cabeçalho da vista de perfil.</p>
 				</div>
 			</section>
 		</div>

@@ -13,6 +13,12 @@
 	font-synthesis: none;
 }
 
+/* Temas visuais (estilo Spicetify): controle via data-theme no <html>.
+   Visual themes (Spicetify-style): controlled via data-theme on <html>. */
+[data-theme="pink"] { --accent-green: #c32974; }
+[data-theme="green"] { --accent-green: #1ed760; }
+[data-theme="purple"] { --accent-green: #8b5cf6; }
+
 * {
 	box-sizing: border-box;
 }
@@ -805,7 +811,7 @@ input:focus-visible {
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 8px 16px;
-	color: #e0e0e0;
+	color: #ffffff;
 	font-size: 12px;
 }
 
@@ -853,6 +859,11 @@ input:focus-visible {
 	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 	font-size: 44px;
 	font-weight: 700;
+}
+.profile-avatar.has-photo,
+#profileViewAvatar.has-photo {
+	font-size: 0;
+	place-items: center;
 }
 
 .profile-header__content {
@@ -2014,12 +2025,13 @@ input:focus-visible {
 }
 
 .credit-row strong {
+	color: #ffffff;
 	font-size: 13px;
 	font-weight: 500;
 }
 
 .credit-row small {
-	color: var(--text-secondary);
+	color: #a3a3a3;
 	font-size: 12px;
 }
 
