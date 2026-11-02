@@ -652,7 +652,9 @@ async function searchMusicProviders(query) {
     if (jamendoEnabled) {
         searchingProviders.push("Jamendo");
     }
-    apiSearchStatus.textContent = `Buscando em ${searchingProviders.join(", ")}…`;
+    // Texto de busca simplificado: sem referências textuais a provedores específicos.
+    // Simplified search text: no references to specific providers.
+    apiSearchStatus.textContent = "Buscando…";
     apiSearchGrid.replaceChildren();
 
     const results = [];
@@ -925,18 +927,35 @@ function bindQueueToggle() {
     }
 }
 
-// Exibe contagens locais nos detalhes sem apresentá-las como números globais de ouvintes.
-// Add local counts to detail headings without claiming that one browser has global listener totals.
+// Exibe métricas globais reais obtidas das APIs públicas (visualizações do Invidious/YouTube
+// ou fãs da Deezer) em vez de contadores locais zerados.
+// Displays real global metrics from public APIs (Invidious/YouTube views or Deezer fans)
+// instead of zeroed local counters.
 function renderDetailStats(item) {
     const stats = localStatsFor(item);
-    const listens = document.createElement("span");
-    listens.className = "detail-meta__local-stat";
-    listens.textContent = `${new Intl.NumberFormat("pt-BR").format(stats.plays)} reproduções neste dispositivo`;
-    detailMeta.append(listens);
-    const saves = document.createElement("span");
-    saves.className = "detail-meta__local-stat";
-    saves.textContent = `${new Intl.NumberFormat("pt-BR").format(stats.saves)} salvamentos neste dispositivo`;
-    detailMeta.append(saves);
+    const saved = stats.saved;
+    const saveLabel = saved ? "Salvo neste dispositivo" : "Salvar";
+    const saveBtn = document.createElement("span");
+    saveBtn.className = "detail-meta__local-stat";
+    saveBtn.textContent = saveLabel;
+    detailMeta.append(saveBtn);
+
+    // Métrica global: visualizações (Invidious/YouTube) ou fãs (Deezer).
+    // Global metric: views (Invidious/YouTube) or fans (Deezer).
+    const globalStat = document.createElement("span");
+    globalStat.className = "detail-meta__global-stat";
+    if (item.provider === "invidious" && item.viewCount) {
+        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
+    } else if (item.provider === "deezer" && item.fanCount) {
+        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
+    } else if (item.viewCount) {
+        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
+    } else if (item.fanCount) {
+        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
+    } else {
+        globalStat.textContent = "Sem dados globais";
+    }
+    detailMeta.append(globalStat);
 }
 
 // Substitui a página inicial pelos detalhes de um artista, faixa, álbum ou playlist pública.
@@ -1045,20 +1064,10 @@ async function loadDetailData(item) {
                 image: updatedItem.artistImage
             }, "detail-link detail-meta__artist");
         }
-        const providerUrl = safeProviderUrl(updatedItem.externalUrl);
-        if (providerUrl) {
-            const providerLink = document.createElement("a");
-            providerLink.className = "detail-link";
-            providerLink.href = providerUrl;
-            providerLink.target = "_blank";
-            providerLink.rel = "noopener noreferrer";
-            const providerNames = {
-                deezer: "Deezer",
-                jamendo: "Jamendo"
-            };
-            providerLink.textContent = `Abrir no ${providerNames[updatedItem.provider] || "provedor"}`;
-            detailMeta.append(providerLink);
-        }
+        // Link externo do provedor ("Abrir no Deezer") removido por decisão de UX:
+        // o player toca direto; não há necessidade de abrir links externos ao provedor.
+        // External provider link ("Open in Deezer") removed by UX decision:
+        // player plays directly; no need to open external provider links.
         const licenseUrl = safeProviderUrl(updatedItem.licenseUrl);
         if (updatedItem.provider === "jamendo" && licenseUrl) {
             const licenseLink = document.createElement("a");
