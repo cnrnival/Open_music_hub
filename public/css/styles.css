@@ -215,10 +215,11 @@ input:focus-visible {
    Three-column app shell; responsive rules below collapse it for narrower screens. */
 .workspace {
 	display: grid;
-	grid-template-columns: minmax(245px, 21%) minmax(360px, 1fr) minmax(270px, 22%);
+	grid-template-columns: minmax(var(--sidebar-width, 245px), 21%) minmax(360px, 1fr) minmax(270px, 22%);
 	gap: 8px;
 	min-height: 0;
 	padding: 0 8px;
+	position: relative;
 }
 
 .panel {
@@ -232,6 +233,45 @@ input:focus-visible {
 	display: flex;
 	flex-direction: column;
 	padding: 16px 14px 10px;
+}
+
+/* Alça de arraste da barra lateral / Library sidebar drag handle. */
+#sidebar-resizer {
+	position: absolute;
+	top: 0;
+	right: -4px;
+	width: 8px;
+	height: 100%;
+	cursor: ew-resize;
+	background: transparent;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: rgba(255, 255, 255, 0.3);
+	transition: color 0.15s ease;
+}
+
+#sidebar-resizer:hover,
+#sidebar-resizer:focus-visible {
+	color: var(--text-primary);
+}
+
+#sidebar-resizer.is-dragging {
+	cursor: ew-resize;
+	color: #fff;
+	user-select: none;
+}
+
+#sidebar-resizer .mdi {
+	font-size: 16px;
+	pointer-events: none;
+}
+
+/* Impede seleção de texto durante o arraste da alça.
+   Prevents text selection while dragging the handle. */
+body.is-resizing-sidebar {
+	user-select: none;
 }
 
 .library-panel__heading,

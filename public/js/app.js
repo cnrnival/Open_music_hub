@@ -312,9 +312,15 @@ const defaultPreferences = Object.freeze({
     // Foto e banner do perfil (data URLs guardadas apenas neste navegador).
     // Profile photo and banner (data URLs kept only in this browser).
     profilePhoto: "",
-    profileBanner: ""
+    profileBanner: "",
+    // Largura da barra lateral da biblioteca em pixels (mínimo 200, máximo 500).
+    // Library sidebar width in pixels (min 200, max 500).
+    sidebarWidth: 245
 });
 let preferences = readPreferences();
+// Largura atual da barra lateral da biblioteca (em pixels).
+// Current library sidebar width (in pixels).
+let sidebarWidth = preferences.sidebarWidth;
 
 // Lê e normaliza as preferências persistidas, ignorando valores desconhecidos.
 // Read and normalize persisted preferences, ignoring unknown values.
@@ -336,6 +342,9 @@ function readPreferences() {
             theme: ["dark", "pink", "green", "purple"].includes(stored.theme) ? stored.theme : defaultPreferences.theme,
             profilePhoto: typeof stored.profilePhoto === "string" ? stored.profilePhoto : defaultPreferences.profilePhoto,
             profileBanner: typeof stored.profileBanner === "string" ? stored.profileBanner : defaultPreferences.profileBanner,
+            sidebarWidth: typeof stored.sidebarWidth === "number" && stored.sidebarWidth >= 200 && stored.sidebarWidth <= 500
+                ? stored.sidebarWidth
+                : defaultPreferences.sidebarWidth,
             profileName
         };
     } catch (error) {
@@ -1150,7 +1159,11 @@ async function loadArtistSupplemental(item) {
         audioDbEnabled
             ? fetchJson(API_CONFIG.providers.audioDb.artistSearchPath(item.title))
             : Promise.resolve(null),
-        fetchJson(API_CONFIG.providers.musicBrainz.artistSearchPath(item.title))
+        fetchJson(API_CONFIG.providers.musicBrainz.artistSearchPath(item.title), {
+            headers: {
+                "User-Agent": "OpenMusicHub/1.0 (https://openmusichub.org)"
+            }
+        })
     ]);
     if (currentDetail !== item) {
         return;
@@ -3658,7 +3671,82 @@ function applyPreferences() {
     applyProfileBanner();
     applyLocalFileVisibility();
     applyProfileIdentity();
+    applySidebarWidth();
     renderSettingsControls();
+}
+
+// Aplica a largura salva da barra lateral ao estilo CSS do workspace.
+// Applies the saved sidebar width to the workspace CSS.
+function applySidebarWidth() {
+    document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+}
+
+// Inicializa o redimensionador da barra lateral da biblioteca.
+// Initializes the library sidebar resizer.
+function initSidebarResizer() {
+    const resizer = document.getElementById("sidebar-resizer");
+    const libraryPanel = document.getElementById("libraryPanel");
+    if (!resizer || !libraryPanel) {
+        return;
+    }
+
+    let isDragging = false;
+    let startX = 0;
+    let startWidth = sidebarWidth;
+
+    const clampWidth = (value) => Math.min(500, Math.max(200, value));
+
+    const applyWidth = (nextWidth) => {
+        sidebarWidth = clampWidth(nextWidth);
+        document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+        preferences = { ...preferences, sidebarWidth };
+        savePreferences();
+    };
+
+    const onMouseMove = (event) => {
+        if (!isDragging) {
+            return;
+        }
+        const dx = event.clientX - startX;
+        applyWidth(startWidth + dx);
+    };
+
+    const onMouseUp = () => {
+        if (!isDragging) {
+            return;
+        }
+        isDragging = false;
+        document.body.classList.remove("is-resizing-sidebar");
+        resizer.classList.remove("is-dragging");
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    resizer.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        isDragging = true;
+        startX = event.clientX;
+        startWidth = sidebarWidth;
+        document.body.classList.add("is-resizing-sidebar");
+        resizer.classList.add("is-dragging");
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+    });
+
+    // Suporte a teclado: setas esquerda/direita ajustam a largura.
+    // Keyboard support: left/right arrows adjust the width.
+    resizer.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            applyWidth(sidebarWidth - 10);
+        } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            applyWidth(sidebarWidth + 10);
+        } else if (event.key === "Home") {
+            event.preventDefault();
+            applyWidth(245);
+        }
+    });
 }
 
 function openSettings(sectionId = "") {
@@ -4624,6 +4712,9 @@ renderLibrary();
 // Densidade, arquivos locais e nome do perfil são aplicados antes da primeira interação.
 // Density, local files, and the profile name are applied before the first interaction.
 applyPreferences();
+// Inicializa o redimensionador da barra lateral da biblioteca.
+// Initializes the library sidebar resizer.
+initSidebarResizer();
 loadApiConfiguration();
 // [PT] Home totalmente dinâmica - limpa conteúdo estático e renderiza dinamicamente
 // [EN] Fully dynamic home - clear static content and render dynamically
