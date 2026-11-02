@@ -585,7 +585,8 @@ const AUDIO_ENGINES = [
     { type: "invidious", url: "https://inv.us.projectsegfau.lt" },
     { type: "invidious", url: "https://invidious.nerdvpn.de" },
     { type: "invidious", url: "https://invidious.drgns.space" },
-    { type: "piped", url: "https://pipedapi.kavin.rocks" }
+    { type: "piped", url: "https://pipedapi.kavin.rocks" },
+    { type: "piped", url: "https://pipedapi.tokhmi.xyz" }
 ];
 const AUDIO_ENGINE_TIMEOUT_MS = API_CONFIG.providers.invidious.engineTimeoutMs || 3000;
 
@@ -1082,6 +1083,65 @@ async function handleInvidiousAudio(url, response) {
     });
 }
 
+// Tendências globais de música via Invidious com rotação de instâncias.
+// Global music trends via Invidious with instance rotation.
+async function handleInvidiousTrending(url, response) {
+    const type = url.searchParams.get("type") || "music";
+    const region = url.searchParams.get("region") || "US";
+    let lastError;
+    for (const engine of AUDIO_ENGINES) {
+        if (engine.type !== "invidious") {
+            continue;
+        }
+        try {
+            const resourcePath = `/api/v1/trending?type=${encodeURIComponent(type)}&region=${encodeURIComponent(region)}`;
+            const payload = await fetchAudioEngineJson(audioEngineUrl(engine, resourcePath));
+            const trends = Array.isArray(payload) ? payload : [];
+            const normalized = trends
+                .filter((item) => item && item.videoId && item.title)
+                .map((item) => ({
+                    videoId: String(item.videoId),
+                    title: String(item.title),
+                    author: String(item.author || ""),
+                    authorId: String(item.authorId || ""),
+                    authorUrl: String(item.authorUrl || ""),
+                    thumbnail: String(
+                        (item.videoThumbnails && item.videoThumbnails[0] && item.videoThumbnails[0].url)
+                            || ""
+                    ),
+                    lengthSeconds: Number(item.lengthSeconds) || 0,
+                    viewCount: Number(item.viewCount) || 0,
+                    published: Number(item.published) || 0,
+                    publishedText: String(item.publishedText || ""),
+                    description: String(item.description || ""),
+                    liveNow: Boolean(item.liveNow),
+                    paid: Boolean(item.paid),
+                    premium: Boolean(item.premium)
+                }));
+            if (normalized.length) {
+                sendJson(response, 200, {
+                    provider: "invidious",
+                    type,
+                    region,
+                    results: normalized
+                });
+                return;
+            }
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (lastError) {
+        throw lastError;
+    }
+    sendJson(response, 200, {
+        provider: "invidious",
+        type,
+        region,
+        results: []
+    });
+}
+
 // Encaminha o fluxo de áudio do Invidious pela mesma origem, preservando Range para seek e download.
 // Proxy the Invidious audio stream same-origin while preserving Range for seeking and downloads.
 async function handleInvidiousStream(request, response, url) {
@@ -1292,6 +1352,10 @@ async function handleRequest(request, response) {
             }
             if (action === "audio") {
                 await handleInvidiousAudio(url, response);
+                return;
+            }
+            if (action === "trending") {
+                await handleInvidiousTrending(url, response);
                 return;
             }
             if (action === "stream") {

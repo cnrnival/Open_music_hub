@@ -80,7 +80,8 @@ test("the audio engine list includes Invidious backups and Piped with a 3s timeo
         "invidious:https://inv.us.projectsegfau.lt",
         "invidious:https://invidious.nerdvpn.de",
         "invidious:https://invidious.drgns.space",
-        "piped:https://pipedapi.kavin.rocks"
+        "piped:https://pipedapi.kavin.rocks",
+        "piped:https://pipedapi.tokhmi.xyz"
     ]);
     assert.equal(isAllowedAudioMimeType("audio/mp4; codecs=\"mp4a.40.2\""), true);
     assert.equal(isAllowedAudioMimeType("audio/webm"), true);

@@ -90,28 +90,21 @@
 			<!-- A página inicial reúne recomendações locais e resultados dos catálogos conectados.
 			     The home page combines local recommendations with results from connected catalogs. -->
 			<div class="home-view">
-			<section class="featured-banner" aria-labelledby="featured-title">
-				<div class="featured-banner__art" aria-hidden="true"><span class="mdi mdi-music-note-eighth"></span><span class="mdi mdi-music-note"></span><span class="mdi mdi-music"></span><span class="featured-banner__badge">U</span></div>
-				<div class="featured-banner__content">
-					<div class="featured-banner__source">
-						<span class="featured-banner__cover">B<br><b>2026</b></span>
-						<span><strong>uDiscover Playlists</strong><small>Propaganda</small></span>
-					</div>
-					<p class="eyebrow">PLAYLIST EM DESTAQUE</p>
-					<h1 id="featured-title">Best of 2026: Global Hits</h1>
-					<div class="featured-banner__actions">
-						<button class="primary-button" type="button">Ouça agora</button>
-						<button class="icon-button featured-more" type="button" aria-label="Mais opções"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button>
-					</div>
-				</div>
+			<!-- Atalhos fixados: somente artistas, álbuns e playlists marcados com 📌 na biblioteca.
+			     Pinned shortcuts: only artists, albums, and playlists marked with 📌 in the library. -->
+			<section class="trends-section home-shortcuts" id="home-shortcuts" aria-labelledby="home-shortcuts-title" aria-live="polite">
+				<div class="section-heading"><h2 id="home-shortcuts-title">Atalhos fixados</h2><span class="home-section-status" data-shortcuts-status></span></div>
+				<div class="trends-grid shortcuts-grid" id="shortcutsGrid"></div>
+				<p class="home-empty" data-shortcuts-empty hidden>Fixe artistas, álbuns ou playlists na biblioteca (📌) para criar atalhos aqui.</p>
 			</section>
 
-			<nav class="home-filters" aria-label="Categorias">
-				<button class="filter-chip is-active" type="button" data-home-filter="all">Tudo</button>
-				<button class="filter-chip" type="button" data-home-filter="music">Música</button>
-				<button class="filter-chip" type="button" data-home-filter="podcast">Podcasts</button>
-				<button class="filter-chip" type="button" data-home-filter="audiobook">Audiolivros</button>
-			</nav>
+			<!-- Pré-salve: lançamentos dos artistas salvos, com botão de sininho por card.
+			     Pre-save: upcoming releases from saved artists, with a bell button per card. -->
+			<section class="trends-section presave-section" id="presave-section" aria-labelledby="presave-title" aria-live="polite">
+				<div class="section-heading"><h2 id="presave-title">Pré-salve os próximos lançamentos</h2><span class="home-section-status" data-presave-status></span></div>
+				<div class="trends-grid presave-grid" id="presaveGrid"></div>
+				<p class="home-empty" data-presave-empty hidden>Fixe um artista na biblioteca para acompanhar os próximos lançamentos.</p>
+			</section>
 
 			<!-- Resultados externos usam dados normalizados da API e são criados em JavaScript.
 			     External results use normalized API data and are created in JavaScript. -->
@@ -119,39 +112,14 @@
 				<div class="section-heading"><h2>Resultados da busca</h2><span class="api-search-status"></span></div>
 				<div class="api-search-grid"></div>
 			</section>
-
-			<section class="quick-picks" aria-label="Feito para você">
-				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-account-music" aria-hidden="true"></span><strong>zTokyo</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
-				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-music" aria-hidden="true"></span><strong>sex [last nite]</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
-				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-album" aria-hidden="true"></span><strong>Pagodin</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
-				<button class="quick-pick" data-searchable data-content-type="music" type="button"><span class="quick-pick__art mdi mdi-account-music" aria-hidden="true"></span><strong>Lil Peep</strong><span class="quick-pick__play mdi mdi-play" aria-hidden="true"></span></button>
-			</section>
-
-			<section class="content-section" data-content-type="music" aria-labelledby="artists-title">
-				<div class="section-heading"><h2 id="artists-title">Seus artistas favoritos</h2><button class="text-button show-all-artists" type="button" aria-expanded="false">Mostrar tudo</button></div>
-				<div class="artist-grid">
-					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Yung Bruh</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Lil Tracy</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--illustration"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>michi</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>Teddy</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" type="button"><span class="artist-card__image artist-card__image--graphic"><span class="mdi mdi-record-circle-outline" aria-hidden="true"></span></span><strong>suisside</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>lilgiela33</strong><small>Artista</small></button>
-					<button class="artist-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="artist-card__image artist-card__image--artist"><span class="mdi mdi-account-music" aria-hidden="true"></span></span><strong>zTokyo</strong><small>Artista</small></button>
-				</div>
-			</section>
-
-			<section class="content-section" data-content-type="music" aria-labelledby="mixes-title">
-				<div class="section-heading"><h2 id="mixes-title">Feito para você</h2><button class="text-button show-all-mixes" type="button" aria-expanded="false">Mostrar tudo</button></div>
-				<div class="release-grid">
-					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-playlist-music" aria-hidden="true"></span><strong>Daily Mix 1</strong><small>Lil Peep, Lil Tracy e muito mais</small></button>
-					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-compass-outline" aria-hidden="true"></span><strong>Descobertas da semana</strong><small>Suas próximas músicas favoritas</small></button>
-					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-new-box" aria-hidden="true"></span><strong>Radar de novidades</strong><small>Os lançamentos que combinam com você</small></button>
-					<button class="release-card" data-searchable data-content-type="music" type="button"><span class="release-card__art mdi mdi-headphones" aria-hidden="true"></span><strong>Mix alternativo</strong><small>Uma seleção feita para você</small></button>
-					<button class="release-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="release-card__art mdi mdi-heart-music" aria-hidden="true"></span><strong>Favoritas recentes</strong><small>As músicas que você mais ouviu</small></button>
-					<button class="release-card" data-searchable data-content-type="music" data-expanded-only type="button" hidden><span class="release-card__art mdi mdi-radio" aria-hidden="true"></span><strong>Rádio personalizada</strong><small>Mais músicas para descobrir</small></button>
-				</div>
-			</section>
 			<p class="empty-results" hidden>Nenhum conteúdo encontrado.</p>
+
+			<!-- Tendências do Momento: dentro da Home, portanto desaparece em qualquer outra rota.
+			     Trending now: inside Home, so it disappears on every other route. -->
+			<section id="trends-view" class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="trends-title">Tendências do Momento</h2><span class="trends-status" role="status"></span></div>
+				<div class="trends-grid"></div>
+			</section>
 
 			<!-- Histórico de escuta local: preenchido pelo player e guardado neste navegador. -->
 			<!-- Local listening history: filled by the player and stored in this browser. -->
@@ -160,11 +128,6 @@
 				<div class="trends-grid recents-grid"></div>
 			</section>
 			</div>
-
-			<section id="trends-view" class="trends-section" aria-labelledby="trends-title" aria-live="polite" hidden>
-				<div class="section-heading"><h2 id="trends-title">Tendências do Momento</h2><span class="trends-status" role="status"></span></div>
-				<div class="trends-grid"></div>
-			</section>
 
 			<section class="news-view" aria-labelledby="news-title" aria-live="polite" hidden>
 				<button class="detail-back news-back" type="button"><span class="mdi mdi-arrow-left" aria-hidden="true"></span> Voltar</button>
@@ -269,19 +232,21 @@
 				<div><button class="icon-button now-playing-panel__expand" type="button" aria-label="Expandir em exibição" aria-expanded="false" aria-controls="expandedView"><span class="mdi mdi-arrow-expand" aria-hidden="true"></span></button>			<button class="icon-button" type="button" aria-label="Mais opções" data-action="track-options"><span class="mdi mdi-dots-horizontal" aria-hidden="true"></span></button><button class="icon-button close-now-playing" type="button" aria-label="Fechar painel"><span class="mdi mdi-close" aria-hidden="true"></span></button></div>
 			<button class="music-player__enter-expanded" type="button" aria-label="Abrir em exibição expandida" title="Em exibição expandida"><span class="mdi mdi-chevron-up" aria-hidden="true"></span></button>
 			</div>
+			<!-- Estado neutro: nada de faixa, artista ou créditos fixos antes do histórico.
+			     Neutral state: no fixed track, artist, or credits before the local history. -->
 			<div class="now-playing-panel__art mdi mdi-music-note" aria-hidden="true"></div>
 			<div class="now-playing-panel__track">
-				<div><button class="now-playing-panel__track-link" type="button"><h2 class="now-playing-panel__track-title">Cristal (Remasterizado 2024)</h2></button><button class="now-playing-panel__artist-link" type="button"><p class="now-playing-panel__artist">lilberto33</p></button></div>
+				<div><button class="now-playing-panel__track-link" type="button"><h2 class="now-playing-panel__track-title">Explore para ouvir</h2></button><button class="now-playing-panel__artist-link" type="button"><p class="now-playing-panel__artist"></p></button></div>
 					<button class="icon-button now-playing-panel__save" type="button" aria-label="Adicionar à biblioteca" aria-pressed="false"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
 			</div>
 			<section class="credits-card" aria-labelledby="credits-title">
 				<div class="section-heading"><h3 id="credits-title">Créditos</h3><button class="text-button credits-more" type="button">Mostrar tudo</button></div>
-				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong>lilberto33</strong></button><small>Artista principal</small></span><button class="outline-button follow-button" type="button" aria-pressed="true">Seguindo</button></div>
-				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong>lilberto33</strong></button><small>Compositor • Produção</small></span></div>
-				<div class="credit-row credit-row--extra" hidden><span><strong>Cristal</strong><small>Faixa disponível neste player local</small></span></div>
+				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong data-credit-artist>Nenhum artista</strong></button><small>Artista principal</small></span><button class="outline-button follow-button" type="button" aria-pressed="false">Seguir</button></div>
+				<div class="credit-row"><span><button class="credit-artist-link" type="button"><strong data-credit-artist>Nenhum artista</strong></button><small>Compositor • Produção</small></span></div>
+				<div class="credit-row credit-row--extra" hidden><span><strong data-credit-track>-</strong><small>Faixa disponível neste player local</small></span></div>
 			</section>
 			<section class="artist-about" aria-labelledby="about-title">
-				<div class="artist-about__copy"><h3 id="about-title">Sobre o artista</h3><strong>lilberto33</strong><p>Uma seleção de sons para acompanhar o seu momento.</p></div>
+				<div class="artist-about__copy"><h3 id="about-title">Sobre o artista</h3><strong data-credit-artist>Nenhum artista</strong><p>Selecione uma faixa para ver os créditos deste dispositivo.</p></div>
 			</section>
 		</aside>
 	</div>
@@ -294,7 +259,7 @@
 		<audio class="music-player__audio" preload="metadata"></audio>
 		<div class="Play-music">
 			<button class="Pplay-music__cover" type="button" aria-label="Carregar músicas completas do dispositivo" title="Carregar músicas completas do dispositivo"><span class="mdi mdi-music" aria-hidden="true"></span></button>
-			<div class="Pplay-music__info"><h2 class="Pplay-music__title">Nenhuma música selecionada</h2><p class="Pplay-music__artist">Carregue um arquivo de áudio</p><span class="music-player__status" role="status" aria-live="polite"></span></div>
+			<div class="Pplay-music__info"><h2 class="Pplay-music__title">Explore para ouvir</h2><p class="Pplay-music__artist"></p><span class="music-player__status" role="status" aria-live="polite"></span></div>
 			<button class="music-player__add" type="button" aria-label="Adicionar à biblioteca"><span class="mdi mdi-plus-circle-outline" aria-hidden="true"></span></button>
 		</div>
 		<div class="music-player__center">

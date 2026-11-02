@@ -215,7 +215,9 @@ input:focus-visible {
    Three-column app shell; responsive rules below collapse it for narrower screens. */
 .workspace {
 	display: grid;
-	grid-template-columns: minmax(var(--sidebar-width, 245px), 21%) minmax(360px, 1fr) minmax(270px, 22%);
+	/* A largura escolhida na alça vale como trilha inteira; o fallback mantém o layout original.
+	   The width chosen on the handle is the whole track; the fallback keeps the original layout. */
+	grid-template-columns: var(--sidebar-width, minmax(245px, 21%)) minmax(360px, 1fr) minmax(270px, 22%);
 	gap: 8px;
 	min-height: 0;
 	padding: 0 8px;
@@ -239,7 +241,9 @@ input:focus-visible {
 #sidebar-resizer {
 	position: absolute;
 	top: 0;
-	right: -4px;
+	/* Ancora a alça no espaço entre a biblioteca e a área principal.
+	   Anchors the handle in the gap between the library and the main area. */
+	left: calc(var(--sidebar-width, 245px) + 4px);
 	width: 8px;
 	height: 100%;
 	cursor: ew-resize;
@@ -2617,6 +2621,12 @@ body.is-resizing-sidebar {
 		grid-template-columns: minmax(220px, 27%) minmax(360px, 1fr);
 	}
 
+	/* Em telas médias a coluna é percentual: a alça não representa mais a largura real.
+	   On medium screens the column is a percentage: the handle no longer matches it. */
+	#sidebar-resizer {
+		display: none;
+	}
+
 	.now-playing-panel {
 		display: none;
 	}
@@ -2938,6 +2948,122 @@ body.is-resizing-sidebar {
 
 .trends-grid {
 	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+/* ==========================================================================
+   Home dinâmica: atalhos fixados e pré-salve de lançamentos
+   Dynamic Home: pinned shortcuts and release pre-save
+   ========================================================================== */
+.home-section-status {
+	color: var(--text-secondary, #b3b3b3);
+	font-size: 12px;
+}
+
+.home-empty {
+	margin: 10px 0 0;
+	color: var(--text-secondary, #b3b3b3);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.shortcuts-grid {
+	grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.shortcuts-grid .quick-pick {
+	min-height: 64px;
+	flex-direction: row;
+	justify-content: flex-start;
+	padding-right: 10px;
+}
+
+.presave-grid {
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.presave-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	padding: 10px;
+	border: 1px solid rgba(255, 255, 255, 0.06);
+	border-radius: 8px;
+	background: #181818;
+}
+
+.presave-card__open {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+
+.presave-card__art {
+	display: grid;
+	place-items: center;
+	width: 100%;
+	aspect-ratio: 1;
+	border-radius: 6px;
+	background: linear-gradient(145deg, #40304a, #171717 74%);
+	background-position: center;
+	background-size: cover;
+	color: #d7c2df;
+	font-size: clamp(34px, 4vw, 56px);
+}
+
+.presave-card__meta {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.presave-card__meta strong,
+.presave-card__meta small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.presave-card__meta small {
+	color: var(--text-secondary, #b3b3b3);
+	font-size: 12px;
+}
+
+.presave-card__actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.presave-card__bell {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	border: 1px solid rgba(255, 255, 255, 0.24);
+	border-radius: 999px;
+	background: transparent;
+	color: #fff;
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.presave-card__bell:hover {
+	border-color: #fff;
+}
+
+.presave-card__bell[aria-pressed="true"] {
+	border-color: transparent;
+	background: var(--accent-green, #1ed760);
+	color: #000;
 }
 
 .detail-download[data-downloaded="true"],

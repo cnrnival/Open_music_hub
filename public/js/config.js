@@ -267,6 +267,11 @@ const API_CONFIG = Object.freeze({
                 },
                 video(videoId) {
                     return `api/v1/videos/${encodeURIComponent(videoId)}`;
+                },
+                // Tendências globais de música via Invidious.
+                // Global music trends via Invidious.
+                trending() {
+                    return `api/v1/trending?type=music&region=US`;
                 }
             }),
             searchPath(query) {
@@ -286,6 +291,11 @@ const API_CONFIG = Object.freeze({
             },
             streamPath(videoId) {
                 return this.proxyPath("stream", { id: videoId });
+            },
+            // Endpoint de tendências globais de música via proxy do Invidious.
+            // Global music trending endpoint via Invidious proxy.
+            trendingPath() {
+                return this.proxyPath("trending", { type: "music", region: "US" });
             }
         }),
         spotify: Object.freeze({

@@ -39,55 +39,10 @@ const neutralTrackArtist = "";
 // Placeholder initial id: no real track restored yet.
 const EMPTY_TRACK_ID = "initial-empty";
 
-// [PT/EN] Instâncias públicas do Invidious para fallback rápido
-// [PT/EN] Public Invidious instances for fast fallback
-const INVIDIOUS_INSTANCES = [
-  'https://invidious.f5.si',
-  'https://inv.us.projectsegfau.lt',
-  'https://invidious.nerdvpn.de',
-  'https://invidious.drgns.space'
-];
-
-/**
- * [PT] Extrai o fluxo de áudio com timeout rápido e fallback de instâncias.
- * [EN] Extracts audio stream with fast timeout and instance fallback.
- */
-async function fetchAudioFast(title, artist) {
-  const query = encodeURIComponent(`${title} ${artist}`);
-
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500); // Max 3.5s por tentativa
-
-      const searchRes = await fetch(`${instance}/api/v1/search?q=${query}&type=video`, {
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (!searchRes.ok) continue;
-      const searchData = await searchRes.json();
-      if (!searchData.length) continue;
-
-      const videoId = searchData[0].videoId;
-      const videoRes = await fetch(`${instance}/api/v1/videos/${videoId}`);
-      if (!videoRes.ok) continue;
-
-      const videoData = await videoRes.json();
-      const audioFormat = videoData.adaptiveFormats?.find(f => 
-        f.type && (f.type.includes('audio/mp4') || f.type.includes('audio/webm'))
-      );
-
-      if (audioFormat?.url) {
-        return audioFormat.url; // Retorna imediatamente a primeira URL encontrada
-      }
-    } catch (e) {
-      console.warn(`[PT] Instância ${instance} demorou/falhou. Tentando próxima... / [EN] Instance failed, trying next...`);
-    }
-  }
-
-  return null;
-}
+// A extração de áudio roda no servidor (Invidious + Piped) para evitar CORS e não
+// expor a rotação de instâncias no navegador. O player consome apenas a rota local.
+// Audio extraction runs on the server (Invidious + Piped) to avoid CORS and keep the
+// instance rotation out of the browser. The player only consumes the local route.
 
 // Perfil e histórico de escuta são funções puras em js/profile.mjs, carregadas sob demanda.
 // Profile and listening history are pure functions in js/profile.mjs, loaded on demand.
@@ -2262,6 +2217,29 @@ function normalizeAudioDbTrend(item) {
     };
 }
 
+// Normaliza um item de tendência do Invidious para o formato compartilhado.
+// Normalizes an Invidious trending item into the shared catalog shape.
+function normalizeInvidiousTrend(item) {
+    if (!item || !item.videoId || !item.title) {
+        return null;
+    }
+    const thumbnail = (item.thumbnail || "").replace(/^http:/, "https:");
+    return {
+        provider: "invidious",
+        kind: "track",
+        id: String(item.videoId),
+        title: String(item.title),
+        artistName: String(item.author || "Artista desconhecido"),
+        artistId: String(item.authorId || ""),
+        image: thumbnail,
+        externalUrl: item.videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(item.videoId)}` : "",
+        durationSeconds: Number(item.lengthSeconds) || 0,
+        viewCount: Number(item.viewCount) || 0,
+        published: Number(item.published) || 0,
+        publishedText: String(item.publishedText || "")
+    };
+}
+
 // Abre uma tendência tocando o áudio completo pelo Invidious.
 // Open a trend by playing its full audio through Invidious.
 async function openTrendItem(trend) {
@@ -2281,12 +2259,12 @@ async function openTrendItem(trend) {
     if (!query) {
         return;
     }
-    showToast(`Procurando "${trend.title}" no Invidious…`);
+    // Busca silenciosa no Invidious para abrir a tendência.
+    // Silent Invidious search to open the trend.
     try {
         const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
         const video = (payload.results || []).find((entry) => entry.videoId);
         if (!video) {
-            showToast("Não encontramos essa tendência no Invidious.");
             return;
         }
         await openDetail({
@@ -2299,94 +2277,311 @@ async function openTrendItem(trend) {
         });
     } catch (error) {
         console.error("Could not open the trending item.", error);
-        showToast(`Não foi possível abrir a tendência: ${error.message}`);
     }
 }
 
-// Carrega as "Tendências do Momento" do TheAudioDB (trending.php) na tela inicial.
-// Load the home "Tendências do Momento" row from TheAudioDB (trending.php).
+// Recomendações personalizadas da home: mistura histórico de escuta, itens fixados e pré-salvos.
+// Personalized home recommendations: mixes listening history, pinned items, and presaves.
+function getPersonalizedRecommendations() {
+    const recents = profileHelpers ? readRecents() : [];
+    const library = readLibrary();
+    const stats = readLocalStats();
+    const pinned = library.filter((entry) => entry.pinned);
+    const presaves = Object.entries(stats)
+        .filter(([, value]) => value && value.saved)
+        .map(([key]) => key)
+        .filter(Boolean);
+    // Normaliza todos para o formato de faixa compartilhado.
+    // Normalizes all into the shared track shape.
+    const personalized = [];
+    const seen = new Set();
+    const add = (track) => {
+        if (!track || !track.title) {
+            return;
+        }
+        const key = `${track.provider}:${track.kind}:${track.id}`;
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        personalized.push(track);
+    };
+    recents.forEach(add);
+    pinned.forEach(add);
+    presaves.forEach((key) => {
+        const [provider, kind, id] = key.split(":");
+        const stat = stats[key];
+        if (!stat || !stat.title) {
+            return;
+        }
+        add({
+            provider,
+            kind: kind || "track",
+            id: id || "",
+            title: stat.title,
+            artistName: stat.artistName || "",
+            image: stat.image || ""
+        });
+    });
+    return personalized;
+}
+
+// Carrega a Home híbrida: tendências globais (Invidious + TheAudioDB) mescladas
+// com recomendações personalizadas (histórico, itens fixados, pré-salvos).
+// Loads the hybrid home: global trends (Invidious + TheAudioDB) merged with
+// personalized recommendations (history, pinned items, presaves).
 async function loadTrends() {
-    const section = document.querySelector(".trends-section");
-    const grid = document.querySelector(".trends-grid");
-    const trendsStatus = document.querySelector(".trends-status");
+    // Escopo pelo id: a seção de tendências globais é exclusiva da Home.
+    // Scope by id: the global trends section belongs only to Home.
+    const section = document.getElementById("trends-view");
+    const grid = section?.querySelector(".trends-grid");
     if (!section || !grid) {
+        return;
+    }
+    // Tendências são exibidas apenas na Home com a busca vazia.
+    // Trends are shown only on Home with an empty search query.
+    if (searchInput.value.trim()) {
+        section.hidden = true;
         return;
     }
     section.hidden = false;
     grid.replaceChildren();
-    if (trendsStatus) {
-        trendsStatus.textContent = "Carregando tendências do momento…";
-        trendsStatus.removeAttribute("role");
-    }
+
+    // Busca tendências globais de forma silenciosa e assíncrona.
+    // Fetches global trends silently and asynchronously.
+    const globalTrends = [];
+    const seenGlobal = new Set();
+
+    // 1) Tendências globais via Invidious (/api/v1/trending?type=music&region=US).
+    // 1) Global trends via Invidious (/api/v1/trending?type=music&region=US).
     try {
-        // O /trending.php devolve poucos itens por país, então combinamos alguns charts.
-        // /trending.php returns few rows per country, so we merge a few charts.
-        const trendCountries = ["us", "gb", "de", "fr", "it", "br"];
-        const responses = await Promise.allSettled(trendCountries.map((country) => (
-            fetchJson(API_CONFIG.providers.audioDb.trendingPath(country, "itunes", "albums"))
-        )));
-        const fulfilled = responses.filter((result) => result.status === "fulfilled");
-        if (!fulfilled.length) {
-            throw new Error(responses[0]?.reason?.message || "O TheAudioDB não respondeu.");
+        const invidiousResp = await fetchJson(API_CONFIG.providers.invidious.trendingPath());
+        const results = Array.isArray(invidiousResp) ? invidiousResp : (invidiousResp.results || []);
+        for (const item of results) {
+            const trend = normalizeInvidiousTrend(item);
+            if (!trend) {
+                continue;
+            }
+            const key = `${trend.provider}:${trend.kind}:${trend.id}`;
+            if (seenGlobal.has(key)) {
+                continue;
+            }
+            seenGlobal.add(key);
+            globalTrends.push(trend);
         }
-        const seenTrends = new Set();
-        const trends = [];
+    } catch (error) {
+        console.error("Could not load Invidious trends.", error);
+    }
+
+    // 2) Tendências globais via TheAudioDB (trending.php, vários países).
+    // 2) Global trends via TheAudioDB (trending.php, multiple countries).
+    try {
+        const trendCountries = ["us", "gb", "de", "fr", "it", "br"];
+        const responses = await Promise.allSettled(
+            trendCountries.map((country) =>
+                fetchJson(API_CONFIG.providers.audioDb.trendingPath(country, "itunes", "albums"))
+            )
+        );
+        const fulfilled = responses.filter((result) => result.status === "fulfilled");
         for (const result of fulfilled) {
             for (const row of Array.isArray(result.value.results) ? result.value.results : []) {
                 const trend = normalizeAudioDbTrend(row);
                 if (!trend) {
                     continue;
                 }
-                const trendKey = `${trend.artistName}:${trend.title}`.toLocaleLowerCase("pt-BR");
-                if (seenTrends.has(trendKey)) {
+                const key = `${trend.provider}:${trend.kind}:${trend.id}`;
+                if (seenGlobal.has(key)) {
                     continue;
                 }
-                seenTrends.add(trendKey);
-                trends.push(trend);
-                if (trends.length >= 12) {
+                seenGlobal.add(key);
+                globalTrends.push(trend);
+                if (globalTrends.length >= 12) {
                     break;
                 }
             }
-        }
-        if (!trends.length) {
-            section.hidden = true;
-            if (trendsStatus) {
-                trendsStatus.textContent = "";
+            if (globalTrends.length >= 12) {
+                break;
             }
-            return;
         }
-        trends.forEach((trend) => {
+    } catch (error) {
+        console.error("Could not load TheAudioDB trends.", error);
+    }
+
+    // 3) Recomendações personalizadas: histórico, fixados e pré-salvos.
+    // 3) Personalized recommendations: history, pinned items, presaves.
+    const personalized = getPersonalizedRecommendations();
+
+    // Renderiza tendências globais primeiro (conteúdo mundial, consagrado).
+    // Renders global trends first (worldwide, consolidated content).
+    globalTrends.forEach((trend) => {
+        const card = document.createElement("button");
+        card.className = "quick-pick";
+        card.type = "button";
+        card.dataset.searchable = "true";
+        card.dataset.contentType = "music";
+        const cover = document.createElement("span");
+        cover.className = "quick-pick__art mdi mdi-album";
+        const image = safeCoverUrl(trend.image);
+        if (image) {
+            cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+            cover.classList.add("has-cover");
+        }
+        const text = document.createElement("span");
+        const heading = document.createElement("strong");
+        heading.textContent = trend.title;
+        const subheading = document.createElement("small");
+        subheading.textContent = trend.artistName || "Artista desconhecido";
+        text.append(heading, subheading);
+        card.append(cover, text);
+        card.addEventListener("click", () => openTrendItem(trend));
+        grid.append(card);
+    });
+
+    // Se houver recomendações personalizadas, renderiza uma seção dedicada.
+    // If there are personalized recommendations, renders a dedicated section.
+    if (personalized.length) {
+        const personalHeading = document.createElement("h2");
+        personalHeading.textContent = "Para você";
+        personalHeading.style.margin = "24px 0 8px";
+        personalHeading.style.fontSize = "18px";
+        personalHeading.style.fontWeight = "700";
+        grid.append(personalHeading);
+
+        personalized.forEach((track) => {
             const card = document.createElement("button");
             card.className = "quick-pick";
             card.type = "button";
             card.dataset.searchable = "true";
             card.dataset.contentType = "music";
             const cover = document.createElement("span");
-            cover.className = "quick-pick__art mdi mdi-album";
-            const image = safeCoverUrl(trend.image);
+            cover.className = "quick-pick__art mdi mdi-music";
+            const image = safeCoverUrl(track.image);
             if (image) {
                 cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
                 cover.classList.add("has-cover");
             }
             const text = document.createElement("span");
             const heading = document.createElement("strong");
-            heading.textContent = trend.title;
+            heading.textContent = track.title;
             const subheading = document.createElement("small");
-            subheading.textContent = [trend.artistName || "Artista desconhecido", trend.chartPlace ? `#${trend.chartPlace} no chart` : "TheAudioDB"].filter(Boolean).join(" • ");
+            subheading.textContent = track.artistName || "Artista desconhecido";
             text.append(heading, subheading);
             card.append(cover, text);
-            card.addEventListener("click", () => openTrendItem(trend));
+            card.addEventListener("click", () => {
+                void openDetail({
+                    provider: track.provider,
+                    kind: track.kind,
+                    id: track.id,
+                    title: track.title,
+                    artistName: track.artistName,
+                    image: track.image
+                });
+            });
             grid.append(card);
         });
-        if (trendsStatus) {
-            trendsStatus.textContent = `${trends.length} tendências do TheAudioDB • toque para ouvir no Invidious`;
-        }
-    } catch (error) {
-        console.error("Could not load music trends.", error);
+    }
+
+    if (!globalTrends.length && !personalized.length) {
         section.hidden = true;
-        if (trendsStatus) {
-            trendsStatus.textContent = `Não foi possível carregar as tendências: ${error.message}`;
-            trendsStatus.setAttribute("role", "alert");
+    }
+
+    // Pinned shortcuts: artistas, álbuns e playlists marcados com 📌 na biblioteca.
+    // Pinned shortcuts: artists, albums, and playlists marked with 📌 in the library.
+    const shortcutsGrid = document.getElementById("shortcutsGrid");
+    const shortcutsEmpty = document.querySelector("[data-shortcuts-empty]");
+    const shortcutsSection = document.getElementById("home-shortcuts");
+    if (shortcutsGrid && shortcutsEmpty && shortcutsSection) {
+        const library = readLibrary();
+        const pinned = library.filter((entry) => entry.pinned);
+        shortcutsGrid.replaceChildren();
+        if (pinned.length) {
+            shortcutsSection.hidden = false;
+            shortcutsEmpty.hidden = true;
+            pinned.forEach((entry) => {
+                const card = document.createElement("button");
+                card.className = "quick-pick";
+                card.type = "button";
+                card.dataset.searchable = "true";
+                card.dataset.contentType = entry.kind || "music";
+                const cover = document.createElement("span");
+                cover.className = `quick-pick__art mdi ${entry.kind === "artist" ? "mdi-account-music" : entry.kind === "album" ? "mdi-album" : entry.kind === "playlist" ? "mdi-playlist-music" : "mdi-music"}`;
+                const image = safeCoverUrl(entry.image);
+                if (image) {
+                    cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+                    cover.classList.add("has-cover");
+                }
+                const text = document.createElement("span");
+                const heading = document.createElement("strong");
+                heading.textContent = entry.title;
+                const subheading = document.createElement("small");
+                subheading.textContent = entry.artistName || entry.kind;
+                text.append(heading, subheading);
+                card.append(cover, text);
+                card.addEventListener("click", () => {
+                    void openDetail({
+                        provider: entry.provider,
+                        kind: entry.kind,
+                        id: entry.id,
+                        title: entry.title,
+                        artistName: entry.artistName,
+                        image: entry.image
+                    });
+                });
+                shortcutsGrid.append(card);
+            });
+        } else {
+            shortcutsSection.hidden = true;
+            shortcutsEmpty.hidden = false;
+        }
+    }
+
+    // Presaves: lançamentos de artistas salvos (pré-salve).
+    // Presaves: upcoming releases from saved artists (pre-save).
+    const presaveGrid = document.getElementById("presaveGrid");
+    const presaveEmpty = document.querySelector("[data-presave-empty]");
+    const presaveSection = document.getElementById("presave-section");
+    if (presaveGrid && presaveEmpty && presaveSection) {
+        const library = readLibrary();
+        const savedArtists = library.filter((entry) => entry.kind === "artist" && entry.pinned);
+        presaveGrid.replaceChildren();
+        if (savedArtists.length) {
+            presaveSection.hidden = false;
+            presaveEmpty.hidden = true;
+            savedArtists.slice(0, 6).forEach((artist) => {
+                const card = document.createElement("button");
+                card.className = "quick-pick";
+                card.type = "button";
+                card.dataset.searchable = "true";
+                card.dataset.contentType = "music";
+                const cover = document.createElement("span");
+                cover.className = "quick-pick__art mdi mdi-account-music";
+                const image = safeCoverUrl(artist.image);
+                if (image) {
+                    cover.style.backgroundImage = `linear-gradient(#0002, #0002), url("${image}")`;
+                    cover.classList.add("has-cover");
+                }
+                const text = document.createElement("span");
+                const heading = document.createElement("strong");
+                heading.textContent = artist.title;
+                const subheading = document.createElement("small");
+                subheading.textContent = "Próximos lançamentos";
+                text.append(heading, subheading);
+                card.append(cover, text);
+                card.addEventListener("click", () => {
+                    void openDetail({
+                        provider: artist.provider,
+                        kind: "artist",
+                        id: artist.id,
+                        title: artist.title,
+                        artistName: artist.artistName,
+                        image: artist.image
+                    });
+                });
+                presaveGrid.append(card);
+            });
+        } else {
+            presaveSection.hidden = true;
+            presaveEmpty.hidden = false;
         }
     }
 }
