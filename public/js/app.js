@@ -448,6 +448,43 @@ function normalizeDeezerItem(type, item) {
     };
 }
 
+// Filtra faixas para exibir estritamente aquelas onde o artista selecionado é o criador principal
+// ou participa como colaborador explícito (feat). Elimina contaminação de homônimos e artistas
+// desconectados que aparecem por falha na query genérica da API.
+// Filters tracks to strictly show those where the selected artist is the main creator
+// or participates as an explicit collaborator (feat). Eliminates homonym contamination and
+// unrelated artists appearing from generic API query failures.
+function filterTracksByMainArtist(tracks, selectedArtistId, selectedArtistName) {
+    if (!selectedArtistId && !selectedArtistName) {
+        return tracks;
+    }
+    const nameLower = String(selectedArtistName || "").toLocaleLowerCase("pt-BR").trim();
+    return tracks.filter((track) => {
+        // Criador principal: ID do artista da faixa corresponde ao artista selecionado.
+        // Main creator: track artist ID matches the selected artist ID.
+        if (track.artistId && String(track.artistId) === String(selectedArtistId)) {
+            return true;
+        }
+        // Colaborador explícito: título da faixa menciona o artista com "feat." ou similar.
+        // Explicit collaborator: track title mentions the artist with "feat." or similar.
+        if (nameLower && track.title) {
+            const titleLower = String(track.title).toLocaleLowerCase("pt-BR");
+            const featPatterns = [
+                `feat. ${nameLower}`,
+                `feat ${nameLower}`,
+                `ft. ${nameLower}`,
+                `ft ${nameLower}`,
+                `featuring ${nameLower}`,
+                `com ${nameLower}`
+            ];
+            if (featPatterns.some((p) => titleLower.includes(p))) {
+                return true;
+            }
+        }
+        return false;
+    });
+}
+
 // Map only server-approved Jamendo fields into the shared track model.
 // Mapeia somente campos Jamendo aprovados pelo servidor para o modelo de faixa compartilhado.
 function normalizeJamendoItem(item) {
@@ -1223,7 +1260,14 @@ async function fetchProviderDetail(item) {
     }
     if (item.provider === "deezer") {
         const payload = await fetchJson(API_CONFIG.providers.deezer.detailPath(item.kind, item.id));
-        const tracks = (payload.tracks || []).map((track) => normalizeDeezerItem("track", track));
+        let tracks = (payload.tracks || []).map((track) => normalizeDeezerItem("track", track));
+        // Filtro estrito de artista: somente faixas onde o artista selecionado é o criador principal
+        // ou participa como colaborador explícito (feat). Elimina contaminação de homônimos.
+        // Strict artist filter: only tracks where the selected artist is the main creator
+        // or participates as an explicit collaborator (feat). Eliminates homonym contamination.
+        if (item.kind === "artist") {
+            tracks = filterTracksByMainArtist(tracks, item.id, item.title || "");
+        }
         if (item.kind === "track") {
             tracks.splice(0, tracks.length, normalizeDeezerItem("track", payload.item));
         }
@@ -1344,9 +1388,8 @@ async function ensureInvidiousAudioUrl(track, requestId, { silent = false } = {}
         track.audioUrl = "";
         track.directAudioUrl = "";
     }
-    if (!silent) {
-        status.textContent = "Extraindo o áudio completo…";
-    }
+    // Carregamento silencioso: nenhum texto de status no rodapé do player.
+    // Silent loading: no status text in the player footer.
     try {
         // O servidor percorre as instâncias com timeout de 3s; aqui basta uma chamada.
         // The server walks instances with a 3s timeout; a single call is enough here.
@@ -1384,7 +1427,8 @@ async function findInvidiousAudioForTrack(track, requestId) {
     if (!queries.length) {
         return "";
     }
-    status.textContent = "Buscando o áudio completo…";
+    // Busca silenciosa de variantes até achar formato válido.
+    // Silent search of variants until a valid format is found.
     for (const query of queries) {
         try {
             const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
@@ -1512,7 +1556,8 @@ function installMediaFallback(track, source) {
         if (String(audio.currentSrc || audio.src || "").includes("action=stream")) {
             return;
         }
-        status.textContent = "Fonte direta bloqueada; tentando o proxy local…";
+        // Fallback silencioso: troca para o proxy de mesma origem sem avisar na UI.
+        // Silent fallback: switches to same-origin proxy without UI notice.
         audio.src = track.audioUrl;
         audio.load();
         playAudio(true);
@@ -1616,7 +1661,8 @@ async function playTrack(track, { autoplay = true } = {}) {
             playableUrl = cachedUrl;
             currentOfflineObjectUrl = cachedUrl;
             usingOfflineCopy = true;
-            status.textContent = "Reproduzindo do cache offline.";
+            // Cópia offline usada sem mensagem de status visível.
+            // Offline copy used without visible status message.
         }
     } catch (error) {
         console.warn("Offline cache unavailable.", error);
@@ -1650,7 +1696,8 @@ async function playTrack(track, { autoplay = true } = {}) {
                 if (jamendoMatch) {
                     playableUrl = jamendoMatch.playbackUrl;
                     usingJamendoFallback = true;
-                    status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+                    // Versão licenciada do Jamendo usada sem mensagem de status visível.
+                    // Licensed Jamendo version used without visible status message.
                 }
             }
             if (!playableUrl && track.provider !== "jamendo" && track.title) {
@@ -1700,7 +1747,8 @@ async function findLicensedJamendoMatch(track, requestId) {
         return null;
     }
     jamendoFallbackAttemptId = requestId;
-    status.textContent = "Procurando uma versão completa licenciada no Jamendo…";
+    // Busca silenciosa de versão licenciada no Jamendo.
+    // Silent search for licensed Jamendo version.
     try {
         const { obterStreamAudioCompleto } = await import("./playback.mjs");
         const match = await obterStreamAudioCompleto(track.title, track.artistName, {
@@ -1726,7 +1774,7 @@ async function tryJamendoPlaybackFallback(track, requestId) {
     if (!match || requestId !== playbackRequestId || currentTrack !== track) {
         return false;
     }
-    status.textContent = "Reproduzindo versão completa licenciada pelo Jamendo.";
+    status.textContent = "";
     audio.src = match.playbackUrl;
     audio.load();
     audio.addEventListener("loadedmetadata", () => {
@@ -2592,10 +2640,13 @@ function previewProgress() {
 function playAudio(countAsNew = !hasPlayedCurrentTrack) {
     const startingTrack = currentTrack;
     pendingPlayCount = countAsNew;
+    // try/catch robusto: contorna restrições de autoplay e falhas de codec sem avisar na UI.
+    // Robust try/catch: works around autoplay restrictions and codec failures without UI notice.
     audio.play().catch((error) => {
         if (currentTrack === startingTrack) {
             pendingPlayCount = false;
-            status.textContent = "O navegador não conseguiu iniciar a reprodução.";
+            // Erro de reprodução é registrado no console apenas; rodapé permanece limpo.
+            // Playback error is logged to console only; footer stays clean.
         }
         console.error("Falha ao iniciar a reprodução do áudio.", error);
     });
@@ -2750,7 +2801,8 @@ async function playSimilarTrack() {
     if (!query) {
         return false;
     }
-    status.textContent = "Autoplay: buscando uma faixa parecida…";
+    // Busca silenciosa de faixa parecida para autoplay.
+    // Silent search for similar track for autoplay.
     try {
         const payload = await fetchJson(API_CONFIG.providers.invidious.searchPath(query));
         const nextVideo = (payload.results || []).find((video) => (
@@ -2811,7 +2863,8 @@ fileInput.addEventListener("change", () => {
 
 audio.addEventListener("loadedmetadata", () => {
     if (!Number.isFinite(audio.duration)) {
-        status.textContent = "Não foi possível ler a duração deste arquivo.";
+        // Duração indisponível sem aviso visual; controles permanecem desabilitados.
+        // Duration unavailable without visual notice; controls stay disabled.
         return;
     }
     playButton.disabled = false;
@@ -2865,7 +2918,8 @@ audio.addEventListener("ended", async () => {
     if (preferences.autoplay && await playSimilarTrack()) {
         return;
     }
-    status.textContent = "Reprodução concluída.";
+    // Fim da reprodução sem mensagem de status visível.
+    // End of playback without visible status message.
 });
 audio.addEventListener("stalled", () => {
     if (currentTrack.provider !== "local" && !audio.paused) {
