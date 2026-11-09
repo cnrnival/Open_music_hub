@@ -12,8 +12,8 @@
   --text-primary: #ffffff;
   --text-secondary: #b3b3b3;
   --text-muted: #717171;
-  --accent: #1DB954;
-  --accent-hover: #1ed758;
+  --accent: #c32974;
+  --accent-hover: #d63b87;
   --accent-text: #000000;
   --border: #282828;
   --border-hover: #4a4a4a;
@@ -1882,8 +1882,8 @@ a { color: var(--text-primary); text-decoration: none; }
 [data-theme="green"] { --accent: #1DB954; --accent-hover: #1ed758; }
 [data-theme="purple"] { --accent: #8b5cf6; --accent-hover: #a78bfa; }
 
-/* Override accent for pink/purple themes where white text on accent doesn't work */
-[data-theme="pink"] .detail-play, [data-theme="pink"] .primary-button, [data-theme="pink"] .music-player__play { color: #fff !important; }
+/* Tema padrão agora é rosa com texto preto nos botões de destaque */
+[data-theme="green"] .detail-play, [data-theme="green"] .primary-button, [data-theme="green"] .music-player__play { color: #000 !important; }
 [data-theme="purple"] .detail-play, [data-theme="purple"] .primary-button, [data-theme="purple"] .music-player__play { color: #fff !important; }
 
 
