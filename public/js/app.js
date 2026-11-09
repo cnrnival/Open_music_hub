@@ -268,7 +268,7 @@ const defaultPreferences = Object.freeze({
     profileName: "",
     // Tema visual (estilo Spicetify): dark | pink | green | purple
     // Visual theme (Spicetify-style): dark | pink | green | purple
-    theme: "dark",
+    theme: "pink",
     // Foto e banner do perfil (data URLs guardadas apenas neste navegador).
     // Profile photo and banner (data URLs kept only in this browser).
     profilePhoto: "",
@@ -299,7 +299,7 @@ function readPreferences() {
             autoplay: typeof stored.autoplay === "boolean" ? stored.autoplay : defaultPreferences.autoplay,
             gapless: typeof stored.gapless === "boolean" ? stored.gapless : defaultPreferences.gapless,
             quality: ["low", "normal", "high"].includes(stored.quality) ? stored.quality : defaultPreferences.quality,
-            theme: ["dark", "pink", "green", "purple"].includes(stored.theme) ? stored.theme : defaultPreferences.theme,
+            theme: ["dark", "pink", "purple"].includes(stored.theme) ? stored.theme : defaultPreferences.theme,
             profilePhoto: typeof stored.profilePhoto === "string" ? stored.profilePhoto : defaultPreferences.profilePhoto,
             profileBanner: typeof stored.profileBanner === "string" ? stored.profileBanner : defaultPreferences.profileBanner,
             sidebarWidth: typeof stored.sidebarWidth === "number" && stored.sidebarWidth >= 200 && stored.sidebarWidth <= 500
