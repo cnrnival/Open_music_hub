@@ -1682,9 +1682,15 @@ async function playTrack(track, { autoplay = true } = {}) {
                 }
             }
             if (!playableUrl && track.provider !== "jamendo" && track.title) {
-                playableUrl = await findInvidiousAudioForTrack(track, requestId);
-                if (requestId !== playbackRequestId) {
-                    return;
+                // Para Deezer, usa o preview (30s) como fallback quando o Invidious está indisponível.
+                // For Deezer, use preview (30s) as fallback when Invidious is unavailable.
+                if (track.provider === "deezer" && track.previewUrl) {
+                    playableUrl = track.previewUrl;
+                } else {
+                    playableUrl = await findInvidiousAudioForTrack(track, requestId);
+                    if (requestId !== playbackRequestId) {
+                        return;
+                    }
                 }
             }
         }
