@@ -3318,9 +3318,16 @@ timeline.addEventListener("pointercancel", () => {
 volumeControl.addEventListener("input", updateVolume);
 muteButton.addEventListener("click", () => {
     const wasMuted = audio.volume === 0;
+    const nowMuted = !wasMuted;
     volumeControl.value = wasMuted ? String(previousVolume || 0.75) : "0";
     updateVolume();
-    showToast(wasMuted ? "Som ativado." : "Som silenciado.");
+    muteButton.setAttribute("aria-pressed", String(nowMuted));
+    muteButton.setAttribute("aria-label", nowMuted ? "Ativar som" : "Silenciar");
+    const muteIcon = muteButton.querySelector(".mdi");
+    if (muteIcon) {
+        muteIcon.className = nowMuted ? "mdi mdi-volume-off" : "mdi mdi-volume-high";
+    }
+    showToast(nowMuted ? "Som silenciado." : "Som ativado.");
 });
 
 document.querySelector(".music-player__previous").addEventListener("click", () => {
