@@ -1378,7 +1378,7 @@ a { color: var(--text-primary); text-decoration: none; }
 }
 
 .lyrics-synced__line.is-active {
-  background: rgba(29,185,84,0.15);
+  background: rgba(195,41,116,0.15);
   color: #fff;
   font-weight: 600;
 }
