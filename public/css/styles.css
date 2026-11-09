@@ -1730,7 +1730,7 @@ a { color: var(--text-primary); text-decoration: none; }
 }
 .quick-pick:hover .quick-pick__play { opacity: 1; transform: translateY(0); }
 
-.content-section { margin-top: 24px; }
+.content-section { margin-top: 20px; }
 .section-heading {
   display: flex;
   align-items: center;
@@ -1847,13 +1847,14 @@ a { color: var(--text-primary); text-decoration: none; }
 }
 
 .empty-results {
-  margin: 30px 0;
-  padding: 24px;
+  margin: 24px 0;
+  padding: 20px;
   border-radius: var(--radius-lg);
   background: var(--panel-active);
   color: var(--text-secondary);
   text-align: center;
   font-size: 14px;
+  border: 1px solid var(--border);
 }
 
 /* ==========================================================================
