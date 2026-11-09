@@ -1772,6 +1772,7 @@ a { color: var(--text-primary); text-decoration: none; }
   cursor: pointer;
   text-align: left;
   transition: background var(--transition);
+  min-width: 0;
 }
 
 .quick-pick:hover { background: #2a2a2a; }
