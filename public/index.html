@@ -127,6 +127,34 @@
 				<div class="section-heading"><h2 id="recents-title">Ouvidos recentemente</h2></div>
 				<div class="trends-grid recents-grid"></div>
 			</section>
+
+			<!-- Artistas em tendência global: preenchido dinamicamente com Invidious + TheAudioDB.
+			     Trending artists: dynamically filled with Invidious + TheAudioDB. -->
+			<section class="trends-section trending-artists-section" id="trending-artists-section" aria-labelledby="trending-artists-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="trending-artists-title">Artistas em Tendência</h2><span class="home-section-status" data-trending-artists-status></span></div>
+				<div class="trends-grid trending-artists-grid" id="trendingArtistsGrid"></div>
+			</section>
+
+			<!-- Músicas em alta: preenchido dinamicamente com Invidious + TheAudioDB.
+			     Trending tracks: dynamically filled with Invidious + TheAudioDB. -->
+			<section class="trends-section trending-tracks-section" id="trending-tracks-section" aria-labelledby="trending-tracks-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="trending-tracks-title">Músicas em Alta</h2><span class="home-section-status" data-trending-tracks-status></span></div>
+				<div class="trends-grid trending-tracks-grid" id="trendingTracksGrid"></div>
+			</section>
+
+			<!-- Recomendado para você: personalizado com base no histórico e favoritos.
+			     Recommended for you: personalized based on history and favorites. -->
+			<section class="trends-section recommended-section" id="recommended-section" aria-labelledby="recommended-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="recommended-title">Recomendado para Você</h2><span class="home-section-status" data-recommended-status></span></div>
+				<div class="trends-grid recommended-grid" id="recommendedGrid"></div>
+			</section>
+
+			<!-- Baseado no seu histórico: artistas e faixas do histórico recente.
+			     Based on your history: artists and tracks from recent listening. -->
+			<section class="trends-section history-based-section" id="history-based-section" aria-labelledby="history-based-title" aria-live="polite" hidden>
+				<div class="section-heading"><h2 id="history-based-title">Baseado no seu histórico</h2><span class="home-section-status" data-history-based-status></span></div>
+				<div class="trends-grid history-based-grid" id="historyBasedGrid"></div>
+			</section>
 			</div>
 
 			<section class="news-view" aria-labelledby="news-title" aria-live="polite" hidden>

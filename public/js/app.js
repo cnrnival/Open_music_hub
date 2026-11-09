@@ -203,6 +203,10 @@ const storageKeys = Object.freeze({
 });
 
 const localAudioUrls = new Set();
+
+// [PT] Capacidade máxima de cards na home para evitar sobrecarga de renderização e navegação por teclado.
+// [EN] Maximum card capacity on the home to avoid render overload and keyboard navigation issues.
+const MAX_HOME_SHORTCUTS = 10;
 let currentTrack = {
     provider: "local",
     kind: "track",
@@ -2506,7 +2510,7 @@ async function loadTrends() {
         if (pinned.length) {
             shortcutsSection.hidden = false;
             shortcutsEmpty.hidden = true;
-            pinned.forEach((entry) => {
+            pinned.slice(0, MAX_HOME_SHORTCUTS).forEach((entry) => {
                 const card = document.createElement("button");
                 card.className = "quick-pick";
                 card.type = "button";
@@ -2897,12 +2901,19 @@ function updateHomeVisibility() {
     });
 
     const quickPicks = document.querySelector(".quick-picks");
-    quickPicks.hidden = [...quickPicks.querySelectorAll("[data-searchable]")].every((item) => item.hidden);
+    const quickPicksHidden = quickPicks
+        ? [...quickPicks.querySelectorAll("[data-searchable]")].every((item) => item.hidden)
+        : true;
+    if (quickPicks) {
+        quickPicks.hidden = quickPicksHidden;
+    }
     const hasMatches = homeContent.some((section) => !section.hidden)
-        || !quickPicks.hidden
+        || !quickPicksHidden
         || apiSearchGrid.childElementCount > 0;
     const emptyResults = document.querySelector(".empty-results");
-    emptyResults.hidden = hasMatches;
+    if (emptyResults) {
+        emptyResults.hidden = hasMatches;
+    }
     if (!hasMatches) {
         emptyResults.textContent = query
             ? `Nenhum resultado para "${searchInput.value.trim()}".`
@@ -4169,23 +4180,35 @@ document.querySelectorAll(".home-filters [data-home-filter]").forEach((button) =
     });
 });
 
-document.querySelector(".show-all-artists").addEventListener("click", (event) => {
-    const grid = document.querySelector(".artist-grid");
-    const isExpanded = event.currentTarget.getAttribute("aria-expanded") !== "true";
-    grid.classList.toggle("is-expanded", isExpanded);
-    grid.querySelectorAll("[data-expanded-only]").forEach((item) => { item.hidden = !isExpanded; });
-    event.currentTarget.setAttribute("aria-expanded", String(isExpanded));
-    event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
-});
+const showAllArtistsBtn = document.querySelector(".show-all-artists");
+if (showAllArtistsBtn) {
+    showAllArtistsBtn.addEventListener("click", (event) => {
+        const grid = document.querySelector(".artist-grid");
+        if (!grid) {
+            return;
+        }
+        const isExpanded = event.currentTarget.getAttribute("aria-expanded") !== "true";
+        grid.classList.toggle("is-expanded", isExpanded);
+        grid.querySelectorAll("[data-expanded-only]").forEach((item) => { item.hidden = !isExpanded; });
+        event.currentTarget.setAttribute("aria-expanded", String(isExpanded));
+        event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
+    });
+}
 
-document.querySelector(".show-all-mixes").addEventListener("click", (event) => {
-    const grid = document.querySelector(".release-grid");
-    const isExpanded = event.currentTarget.getAttribute("aria-expanded") !== "true";
-    grid.classList.toggle("is-expanded", isExpanded);
-    grid.querySelectorAll("[data-expanded-only]").forEach((item) => { item.hidden = !isExpanded; });
-    event.currentTarget.setAttribute("aria-expanded", String(isExpanded));
-    event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
-});
+const showAllMixesBtn = document.querySelector(".show-all-mixes");
+if (showAllMixesBtn) {
+    showAllMixesBtn.addEventListener("click", (event) => {
+        const grid = document.querySelector(".release-grid");
+        if (!grid) {
+            return;
+        }
+        const isExpanded = event.currentTarget.getAttribute("aria-expanded") !== "true";
+        grid.classList.toggle("is-expanded", isExpanded);
+        grid.querySelectorAll("[data-expanded-only]").forEach((item) => { item.hidden = !isExpanded; });
+        event.currentTarget.setAttribute("aria-expanded", String(isExpanded));
+        event.currentTarget.textContent = isExpanded ? "Mostrar menos" : "Mostrar tudo";
+    });
+}
 
 
 
@@ -4200,10 +4223,16 @@ document.querySelectorAll(".quick-pick, .artist-card, .release-card").forEach((i
     });
 });
 
-document.querySelector(".primary-button").addEventListener("click", playAudio);
-document.querySelector(".featured-more").addEventListener("click", () => {
-    openNamedCollection("Best of 2026: Global Hits", "playlist");
-});
+const primaryButton = document.querySelector(".primary-button");
+if (primaryButton) {
+    primaryButton.addEventListener("click", playAudio);
+}
+const featuredMore = document.querySelector(".featured-more");
+if (featuredMore) {
+    featuredMore.addEventListener("click", () => {
+        openNamedCollection("Best of 2026: Global Hits", "playlist");
+    });
+}
 
 document.querySelector(".now-playing-panel__save").addEventListener("click", () => {
     toggleSave(currentTrack);
