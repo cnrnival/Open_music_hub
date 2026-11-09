@@ -3023,13 +3023,56 @@ function requestLocalAudioFiles() {
 
 function openCurrentTrackDetails() {
     if (!currentTrack || currentTrack.id === EMPTY_TRACK_ID) {
-        showToast("Escolha uma faixa para abrir seus detalhes.");
+        // Nenhuma faixa tocando: abrir seletor de arquivos locais
+        if (preferences.showLocalFiles) {
+            fileInput.click();
+        } else {
+            showToast("Ative “Mostrar arquivos locais” nas configurações para escolher arquivos do dispositivo.");
+            openSettings("settings-library");
+        }
         return;
     }
+
+    // Arquivo local: abrir player expandido
+    if (currentTrack.provider === "local") {
+        openExpandedView();
+        return;
+    }
+
+    // Faixa de catálogo: abrir detalhes da faixa/álbum
     void openDetail(currentTrack);
 }
 
-document.querySelector(".Pplay-music__cover").addEventListener("click", openCurrentTrackDetails);
+const coverButton = document.querySelector(".Pplay-music__cover");
+if (coverButton) {
+    coverButton.addEventListener("click", openCurrentTrackDetails);
+
+    // Atualizar aria-label conforme contexto
+    function updateCoverButtonLabel() {
+        if (!currentTrack || currentTrack.id === EMPTY_TRACK_ID) {
+            coverButton.setAttribute("aria-label", "Carregar arquivos de áudio do dispositivo");
+            coverButton.setAttribute("title", "Carregar arquivos de áudio do dispositivo");
+            coverButton.querySelector(".mdi").className = "mdi mdi-music";
+        } else if (currentTrack.provider === "local") {
+            coverButton.setAttribute("aria-label", "Abrir player expandido com a faixa atual");
+            coverButton.setAttribute("title", "Abrir player expandido com a faixa atual");
+            coverButton.querySelector(".mdi").className = "mdi mdi-music";
+        } else {
+            coverButton.setAttribute("aria-label", "Abrir detalhes da faixa atual");
+            coverButton.setAttribute("title", "Abrir detalhes da faixa atual");
+            coverButton.querySelector(".mdi").className = "mdi mdi-music";
+        }
+    }
+
+    // Atualizar quando a faixa mudar
+    const originalPlayTrack = playTrack;
+    // Usar o evento de loadedmetadata para atualizar o label quando uma faixa começa a tocar
+    audio.addEventListener("loadedmetadata", updateCoverButtonLabel);
+    // Também atualizar no clique do play
+    playButton.addEventListener("click", updateCoverButtonLabel);
+    // Inicializar
+    updateCoverButtonLabel();
+}
 document.querySelector(".import-card__button").addEventListener("click", requestLocalAudioFiles);
 document.querySelector(".music-player__next").addEventListener("click", () => {
     advanceQueue();
