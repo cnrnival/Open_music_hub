@@ -55,6 +55,17 @@ const profileHelpersReady = import("./profile.mjs").then((module) => {
     return null;
 });
 
+// Controles de player testados em src/player-controls.mjs, carregados sob demanda.
+// Player controls tested in src/player-controls.mjs, loaded on demand.
+let playerControls = null;
+const playerControlsReady = import("../src/player-controls.mjs").then((module) => {
+    playerControls = module;
+    return module;
+}).catch((error) => {
+    console.error("Could not load player controls helpers.", error);
+    return null;
+});
+
 // Lê a lista de faixas ouvidas no formato do profile.mjs (array normalizado).
 // Read the listened-track list in the profile.mjs format (normalized array).
 function readRecents() {
@@ -2814,19 +2825,22 @@ async function openNamedCollection(name, kind) {
 }
 
 function updateVolume() {
-    const volume = Number(volumeControl.value);
-    audio.volume = volume;
-    volumeControl.style.setProperty("--volume", `${volume * 100}%`);
-    volumeControl.setAttribute("aria-valuetext", `${Math.round(volume * 100)}%`);
-    muteButton.setAttribute("aria-label", volume === 0 ? "Ativar som" : "Silenciar");
-    volumeIcon.className = volume === 0
-        ? "mdi mdi-volume-off"
-        : volume < 0.5
-            ? "mdi mdi-volume-low"
-            : "mdi mdi-volume-high";
+    if (!playerControls) {
+        return;
+    }
+    const rawVolume = Number(volumeControl.value);
+    const fallback = previousVolume || 0.75;
+    const state = playerControls.getVolumeState(rawVolume, fallback);
 
-    if (volume > 0) {
-        previousVolume = volume;
+    audio.volume = state.volume;
+    volumeControl.value = String(state.volume);
+    volumeControl.style.setProperty("--volume", `${state.percentage}%`);
+    volumeControl.setAttribute("aria-valuetext", `${state.percentage}%`);
+    muteButton.setAttribute("aria-label", state.muted ? "Ativar som" : "Silenciar");
+    volumeIcon.className = `mdi mdi-${state.icon}`;
+
+    if (state.volume > 0) {
+        previousVolume = state.volume;
     }
 }
 
@@ -2847,31 +2861,31 @@ function setPlaybackState(isPlaying) {
 }
 
 function updateProgress() {
+    if (!playerControls) {
+        return;
+    }
     if (isSeeking || audio.seeking) {
         return;
     }
-    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-    const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-    currentTimeLabel.textContent = formatTime(currentTime);
-    durationLabel.textContent = formatTime(duration);
-    progress.max = String(duration);
-    progress.value = String(currentTime);
-    progress.setAttribute("aria-valuetext", `${formatTime(currentTime)} de ${formatTime(duration)}`);
-    progress.style.setProperty(
-        "--progress",
-        duration > 0 ? `${(currentTime / duration) * 100}%` : "0%"
-    );
-    progress.setAttribute("data-played", String(duration > 0 ? (currentTime / duration) : 0));
+    const state = playerControls.getProgressState(audio.currentTime, audio.duration);
+    currentTimeLabel.textContent = formatTime(state.currentTime);
+    durationLabel.textContent = formatTime(state.duration);
+    progress.max = String(state.duration);
+    progress.value = String(state.currentTime);
+    progress.setAttribute("aria-valuetext", `${formatTime(state.currentTime)} de ${formatTime(state.duration)}`);
+    progress.style.setProperty("--progress", `${state.percentage}%`);
+    progress.setAttribute("data-played", String(state.ratio));
 }
 
 function previewProgress() {
+    if (!playerControls) {
+        return;
+    }
     const previewTime = Number(progress.value);
-    currentTimeLabel.textContent = formatTime(previewTime);
-    progress.style.setProperty(
-        "--progress",
-        audio.duration > 0 ? `${(previewTime / audio.duration) * 100}%` : "0%"
-    );
-    progress.setAttribute("data-played", String(audio.duration > 0 ? (previewTime / audio.duration) : 0));
+    const state = playerControls.getProgressState(previewTime, audio.duration);
+    currentTimeLabel.textContent = formatTime(state.currentTime);
+    progress.style.setProperty("--progress", `${state.percentage}%`);
+    progress.setAttribute("data-played", String(state.ratio));
 }
 
 // Conta uma reprodução somente após o navegador confirmar que o áudio começou.
@@ -3293,16 +3307,18 @@ timeline.addEventListener("pointerdown", (event) => {
         isPointerSeeking = true;
     }
 });
-timeline.addEventListener("pointerup", (event) => {
+timeline.addEventListener("pointerup", async (event) => {
     if (!isPointerSeeking) {
         return;
     }
+    await playerControlsReady;
     const bounds = progress.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-    progress.value = String(ratio * Number(progress.max));
+    const targetTime = playerControls.seekTimeFromRatio(ratio, audio.duration);
+    progress.value = String(targetTime);
     isPointerSeeking = false;
     ignoreNextRangeChange = true;
-    commitSeek(Number(progress.value));
+    commitSeek(targetTime);
     window.setTimeout(() => {
         ignoreNextRangeChange = false;
     }, 0);
@@ -3327,17 +3343,17 @@ timeline.addEventListener("pointercancel", () => {
 });
 
 volumeControl.addEventListener("input", updateVolume);
-muteButton.addEventListener("click", () => {
+muteButton.addEventListener("click", async () => {
+    await playerControlsReady;
     const wasMuted = audio.volume === 0;
-    const nowMuted = !wasMuted;
-    volumeControl.value = wasMuted ? String(previousVolume || 0.75) : "0";
-    updateVolume();
-    muteButton.setAttribute("aria-pressed", String(nowMuted));
-    muteButton.setAttribute("aria-label", nowMuted ? "Ativar som" : "Silenciar");
-    const muteIcon = muteButton.querySelector(".mdi");
-    if (muteIcon) {
-        muteIcon.className = nowMuted ? "mdi mdi-volume-off" : "mdi mdi-volume-high";
+    if (wasMuted) {
+        volumeControl.value = String(previousVolume || 0.75);
+    } else {
+        volumeControl.value = "0";
     }
+    updateVolume();
+    const nowMuted = audio.volume === 0;
+    muteButton.setAttribute("aria-pressed", String(nowMuted));
     showToast(nowMuted ? "Som silenciado." : "Som ativado.");
 });
 
