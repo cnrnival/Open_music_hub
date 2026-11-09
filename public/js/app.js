@@ -248,6 +248,7 @@ let isSeeking = false;
 let isPointerSeeking = false;
 let ignoreNextRangeChange = false;
 let playbackRequestId = 0;
+let pendingAudioMetadataHandler = null;
 let jamendoFallbackAttemptId = 0;
 let currentOfflineObjectUrl = "";
 let importCardDismissed = false;
@@ -1713,7 +1714,7 @@ async function playTrack(track, { autoplay = true } = {}) {
     audio.src = playableUrl;
     audio.load();
     installMediaFallback(track, playableUrl);
-    audio.addEventListener("loadedmetadata", () => {
+    pendingAudioMetadataHandler = () => {
         if (currentTrack === track) {
             if (autoplay) {
                 playAudio(true);
@@ -1723,7 +1724,7 @@ async function playTrack(track, { autoplay = true } = {}) {
                 updateProgress();
             }
         }
-    }, { once: true });
+    };
     void updateDownloadIndicators();
 }
 
@@ -1764,14 +1765,14 @@ async function tryJamendoPlaybackFallback(track, requestId) {
     status.textContent = "";
     audio.src = match.playbackUrl;
     audio.load();
-    audio.addEventListener("loadedmetadata", () => {
+    pendingAudioMetadataHandler = () => {
         if (requestId === playbackRequestId && currentTrack === track) {
             playButton.disabled = false;
             progress.disabled = false;
             updateProgress();
             playAudio();
         }
-    }, { once: true });
+    };
     return true;
 }
 
@@ -3020,7 +3021,15 @@ function requestLocalAudioFiles() {
     fileInput.click();
 }
 
-document.querySelector(".Pplay-music__cover").addEventListener("click", requestLocalAudioFiles);
+function openCurrentTrackDetails() {
+    if (!currentTrack || currentTrack.id === EMPTY_TRACK_ID) {
+        showToast("Escolha uma faixa para abrir seus detalhes.");
+        return;
+    }
+    void openDetail(currentTrack);
+}
+
+document.querySelector(".Pplay-music__cover").addEventListener("click", openCurrentTrackDetails);
 document.querySelector(".import-card__button").addEventListener("click", requestLocalAudioFiles);
 document.querySelector(".music-player__next").addEventListener("click", () => {
     advanceQueue();
@@ -3096,6 +3105,8 @@ fileInput.addEventListener("change", () => {
 });
 
 audio.addEventListener("loadedmetadata", () => {
+    const metadataHandler = pendingAudioMetadataHandler;
+    pendingAudioMetadataHandler = null;
     if (!Number.isFinite(audio.duration)) {
         // Duração indisponível sem aviso visual; controles permanecem desabilitados.
         // Duration unavailable without visual notice; controls stay disabled.
@@ -3104,6 +3115,7 @@ audio.addEventListener("loadedmetadata", () => {
     playButton.disabled = false;
     progress.disabled = false;
     updateProgress();
+    metadataHandler?.();
 });
 
 audio.addEventListener("timeupdate", () => {
@@ -3262,8 +3274,10 @@ timeline.addEventListener("pointercancel", () => {
 
 volumeControl.addEventListener("input", updateVolume);
 muteButton.addEventListener("click", () => {
-    volumeControl.value = audio.volume === 0 ? String(previousVolume || 0.75) : "0";
+    const wasMuted = audio.volume === 0;
+    volumeControl.value = wasMuted ? String(previousVolume || 0.75) : "0";
     updateVolume();
+    showToast(wasMuted ? "Som ativado." : "Som silenciado.");
 });
 
 document.querySelector(".music-player__previous").addEventListener("click", () => {
@@ -3302,10 +3316,6 @@ repeatButton.addEventListener("click", () => {
     repeatButton.setAttribute("aria-pressed", String(audio.loop));
     repeatButton.setAttribute("aria-label", audio.loop ? "Desativar repetição" : "Ativar repetição");
     showToast(audio.loop ? "A faixa será repetida." : "Repetição desativada.");
-});
-
-muteButton.addEventListener("click", () => {
-    showToast(audio.volume === 0 ? "Som ativado." : "Som silenciado.");
 });
 
 searchInput.addEventListener("input", () => {
@@ -3794,10 +3804,11 @@ function applyLocalFileVisibility() {
     }
     const coverButton = document.querySelector(".Pplay-music__cover");
     if (coverButton) {
-        coverButton.disabled = !preferences.showLocalFiles;
-        coverButton.title = preferences.showLocalFiles
-            ? "Carregar músicas completas do dispositivo"
-            : "Ative “Mostrar arquivos locais” nas configurações";
+        coverButton.disabled = false;
+        coverButton.title = currentTrack?.id === EMPTY_TRACK_ID
+            ? "Escolha uma faixa para abrir seus detalhes"
+            : "Abrir detalhes da faixa atual";
+        coverButton.setAttribute("aria-label", coverButton.title);
     }
     fileInput.disabled = !preferences.showLocalFiles;
 }
@@ -4819,9 +4830,6 @@ document.querySelectorAll("[data-action]").forEach((button) => {
                 // Editar perfil abre a seção correspondente do diálogo de configurações.
                 // Editing the profile opens the matching settings-dialog section.
                 openSettings("settings-profile");
-                break;
-            case "queue":
-                showDialog("Tocando agora", `Faixa atual: ${title.textContent}.`);
                 break;
             case "track-options":
                 showDialog("Opções da faixa", "Use o botão + para salvar a faixa ou os controles do player para reproduzir, repetir e ajustar o volume.");
