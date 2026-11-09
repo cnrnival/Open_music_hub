@@ -1859,6 +1859,16 @@ a { color: var(--text-primary); text-decoration: none; }
 /* ==========================================================================
    Responsive
    ========================================================================== */
+@media (max-width: 1400px) and (min-width: 761px) {
+  .topbar__actions .topbar__explore,
+  .topbar__actions .topbar__install,
+  .topbar__actions .topbar__notifications,
+  .topbar__actions .topbar__friends {
+    display: none !important;
+  }
+  .topbar__actions { gap: 6px; }
+}
+
 @media (max-width: 1120px) {
   .workspace { grid-template-columns: minmax(220px, 27%) minmax(360px, 1fr); }
   #sidebar-resizer { display: none; }
