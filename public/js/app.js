@@ -646,76 +646,74 @@ async function fetchJson(url, options = {}) {
     return payload;
 }
 
-// Consulta cada provedor independentemente para manter o Deezer útil mesmo se outro falhar.
-// Fetch each provider independently so Deezer stays useful even when another one fails.
+// Consulta cada provedor em paralelo para acelerar a busca.
+// Fetch each provider in parallel to speed up search.
 async function searchMusicProviders(query) {
     const requestId = ++searchRequestId;
     apiSearchAbortController?.abort();
     apiSearchAbortController = new AbortController();
     apiSearchSection.hidden = false;
-    const searchingProviders = ["Deezer", "Invidious"];
-    if (jamendoEnabled) {
-        searchingProviders.push("Jamendo");
-    }
-    // Texto de busca simplificado: sem referências textuais a provedores específicos.
-    // Simplified search text: no references to specific providers.
     apiSearchStatus.textContent = "Buscando…";
     apiSearchGrid.replaceChildren();
 
     const results = [];
     const errors = [];
     const successfulProviders = new Set();
-    try {
-        const deezer = await fetchJson(API_CONFIG.providers.deezer.searchPath(query), {
-            signal: apiSearchAbortController.signal
-        });
+
+    const deezerPromise = fetchJson(API_CONFIG.providers.deezer.searchPath(query), {
+        signal: apiSearchAbortController.signal
+    }).then((deezer) => {
         successfulProviders.add("Deezer");
         for (const group of deezer.results || []) {
             for (const item of group.data || []) {
                 results.push(normalizeDeezerItem(group.type, item));
             }
         }
-    } catch (error) {
+    }).catch((error) => {
         if (error.name === "AbortError") {
             return;
         }
         console.error("Deezer search failed.", error);
         errors.push(`Deezer: ${error.message}`);
-    }
+    });
 
-    try {
-        const invidious = await fetchJson(API_CONFIG.providers.invidious.searchPath(query), {
-            signal: apiSearchAbortController.signal
-        });
+    const invidiousPromise = fetchJson(API_CONFIG.providers.invidious.searchPath(query), {
+        signal: apiSearchAbortController.signal
+    }).then((invidious) => {
         successfulProviders.add("Invidious");
         for (const video of invidious.results || []) {
             results.push(normalizeInvidiousItem(video));
         }
-    } catch (error) {
+    }).catch((error) => {
         if (error.name === "AbortError") {
             return;
         }
         console.error("Invidious search failed.", error);
         errors.push(`Invidious: ${error.message}`);
-    }
+    });
+
+    const promises = [deezerPromise, invidiousPromise];
 
     if (jamendoEnabled) {
-        try {
-            const jamendo = await fetchJson(API_CONFIG.providers.jamendo.searchPath(query), {
+        promises.push(
+            fetchJson(API_CONFIG.providers.jamendo.searchPath(query), {
                 signal: apiSearchAbortController.signal
-            });
-            successfulProviders.add("Jamendo");
-            for (const item of jamendo.results || []) {
-                results.push(normalizeJamendoItem(item));
-            }
-        } catch (error) {
-            if (error.name === "AbortError") {
-                return;
-            }
-            console.error("Jamendo search failed.", error);
-            errors.push(`Jamendo: ${error.message}`);
-        }
+            }).then((jamendo) => {
+                successfulProviders.add("Jamendo");
+                for (const item of jamendo.results || []) {
+                    results.push(normalizeJamendoItem(item));
+                }
+            }).catch((error) => {
+                if (error.name === "AbortError") {
+                    return;
+                }
+                console.error("Jamendo search failed.", error);
+                errors.push(`Jamendo: ${error.message}`);
+            })
+        );
     }
+
+    await Promise.all(promises);
 
     if (requestId !== searchRequestId) {
         return;
@@ -949,18 +947,20 @@ function renderDetailStats(item) {
     // Global metric: views (Invidious/YouTube) or fans (Deezer).
     const globalStat = document.createElement("span");
     globalStat.className = "detail-meta__global-stat";
+    let globalText = "";
     if (item.provider === "invidious" && item.viewCount) {
-        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
+        globalText = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
     } else if (item.provider === "deezer" && item.fanCount) {
-        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
+        globalText = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
     } else if (item.viewCount) {
-        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
+        globalText = `${new Intl.NumberFormat("pt-BR").format(item.viewCount)} visualizações globais`;
     } else if (item.fanCount) {
-        globalStat.textContent = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
-    } else {
-        globalStat.textContent = "Sem dados globais";
+        globalText = `${new Intl.NumberFormat("pt-BR").format(item.fanCount)} fãs globais`;
     }
-    detailMeta.append(globalStat);
+    if (globalText) {
+        globalStat.textContent = globalText;
+        detailMeta.append(globalStat);
+    }
 }
 
 // Substitui a página inicial pelos detalhes de um artista, faixa, álbum ou playlist pública.
