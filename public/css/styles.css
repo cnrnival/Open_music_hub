@@ -572,6 +572,8 @@ a { color: var(--text-primary); text-decoration: none; }
   font-size: clamp(40px, 5vw, 60px);
   display: grid;
   place-items: center;
+  background-size: cover;
+  background-position: center;
 }
 
 .api-search-results { margin: 20px 0 8px; }
@@ -593,6 +595,7 @@ a { color: var(--text-primary); text-decoration: none; }
   background: var(--panel-active);
   cursor: pointer;
   transition: transform 150ms ease, background 150ms ease;
+  min-width: 0;
 }
 
 .api-result-card:hover { background: var(--panel-hover); transform: translateY(-2px); }
@@ -607,6 +610,8 @@ a { color: var(--text-primary); text-decoration: none; }
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
 }
 
 .api-result-card__text { display: grid; width: 100%; gap: 4px; }
@@ -646,7 +651,6 @@ a { color: var(--text-primary); text-decoration: none; }
   background-size: cover;
   opacity: 0.5;
   filter: blur(20px);
-  transform: scale(1.03);
 }
 
 .detail-header__art.has-cover { opacity: 0.6; }
@@ -841,7 +845,7 @@ a { color: var(--text-primary); text-decoration: none; }
   border: 4px solid rgba(255,255,255,0.2);
 }
 
-.profile-avatar.has-photo { font-size: 0; place-items: center; }
+.profile-avatar.has-photo { font-size: 0; place-items: center; background-size: cover; background-position: center; }
 
 .profile-header__content { min-width: 0; }
 .profile-header__content h1 {
@@ -966,6 +970,8 @@ a { color: var(--text-primary); text-decoration: none; }
   font-size: clamp(40px, 8vw, 72px);
   border: 1px solid var(--border);
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  background-size: cover;
+  background-position: center;
 }
 
 .now-playing-panel__art.has-cover .mdi { display: none; }
@@ -1086,6 +1092,8 @@ a { color: var(--text-primary); text-decoration: none; }
   cursor: pointer;
   flex-shrink: 0;
   border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
 }
 
 .Pplay-music__info { min-width: 0; }
@@ -1698,6 +1706,8 @@ a { color: var(--text-primary); text-decoration: none; }
   font-weight: 800;
   display: grid;
   place-items: center;
+  background-size: cover;
+  background-position: center;
 }
 
 .eyebrow {
@@ -1777,6 +1787,8 @@ a { color: var(--text-primary); text-decoration: none; }
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
 }
 
 .quick-pick strong {
@@ -1848,6 +1860,7 @@ a { color: var(--text-primary); text-decoration: none; }
   cursor: pointer;
   text-align: left;
   transition: background var(--transition);
+  min-width: 0;
 }
 .artist-card:hover, .release-card:hover { background: rgba(255,255,255,0.03); }
 
@@ -1863,6 +1876,8 @@ a { color: var(--text-primary); text-decoration: none; }
   font-size: clamp(28px, 4vw, 44px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
 }
 
 .release-card__art {
@@ -1876,6 +1891,8 @@ a { color: var(--text-primary); text-decoration: none; }
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
 }
 
 .artist-card strong, .release-card strong {
@@ -1926,6 +1943,17 @@ a { color: var(--text-primary); text-decoration: none; }
 /* ==========================================================================
    Responsive
    ========================================================================== */
+html {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
 @media (max-width: 1400px) and (min-width: 761px) {
   .topbar__actions .topbar__explore,
   .topbar__actions .topbar__install,
@@ -1985,6 +2013,41 @@ a { color: var(--text-primary); text-decoration: none; }
   .section-heading h2 { font-size: 18px; }
   .quick-pick { height: 52px; }
   .quick-pick__art { width: 50px; height: 50px; font-size: 22px; }
+}
+
+/* Mobile landscape: altura limitada, ajustar painéis e player */
+@media (max-width: 760px) and (orientation: landscape) {
+  body { grid-template-rows: 56px minmax(0, 1fr) 64px; }
+  .topbar { height: 56px; padding: 0 12px; gap: 8px; }
+  .search-box { height: 36px; font-size: 13px; }
+  .search-box input { font-size: 13px; }
+  .profile-button { width: 32px; height: 32px; font-size: 12px; }
+
+  .main-view { padding: 12px 12px 76px; }
+  .detail-header { min-height: 160px; padding: 16px; }
+  .profile-header { padding: 16px; gap: 12px; }
+  .profile-avatar { width: 72px; height: 72px; font-size: 28px; }
+
+  .featured-banner { min-height: 130px; grid-template-columns: 30% minmax(0, 1fr); }
+  .featured-banner h1 { font-size: clamp(18px, 3vw, 26px); }
+  .quick-picks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .artist-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .release-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+
+  .music-player { min-height: 64px; padding: 4px 12px; gap: 10px; }
+  .Pplay-music__cover { width: 44px; height: 44px; font-size: 18px; }
+  .music-player__play { width: 40px; height: 40px; font-size: 20px; }
+  .music-player__controls { gap: 10px; }
+  .music-player__controls button,
+  .music-player__extras button { width: 30px; height: 30px; font-size: 16px; }
+  .music-player__title { font-size: 12px; }
+  .music-player__artist { font-size: 10px; }
+
+  .quick-pick { height: 46px; }
+  .quick-pick__art { width: 40px; height: 40px; font-size: 18px; }
+  .section-heading h2 { font-size: 16px; }
+  .trends-grid { gap: 10px; }
+  .api-search-grid { gap: 10px; }
 }
 
 /* ==========================================================================
