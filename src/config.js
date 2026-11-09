@@ -113,6 +113,8 @@ const API_CONFIG = {
     }
 };
 
+export default API_CONFIG;
+
 // [PT] Exportação para uso em Node.js e navegador / [EN] Export for Node.js and browser usage
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = API_CONFIG;
