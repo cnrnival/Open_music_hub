@@ -2,19 +2,19 @@
  * [PT] Temas visuais customizados e gradiente dinâmico
  * [EN] Custom visual themes and dynamic gradient
  * 
- * [PT] Temas estilo Spicetify: Verde, Roxo, Cyberpunk, AMOLED
- * [EN] Spicetify-style themes: Green, Purple, Cyberpunk, AMOLED
+ * [PT] Temas estilo Spicetify: Roxo Pink, Roxo
+ * [EN] Spicetify-style themes: Roxo Pink, Roxo
  */
 
 export const THEMES = {
-    green: {
-        name: 'Verde',
-        nameEn: 'Green',
-        primary: '#1ed760',
-        primaryHover: '#1fdf64',
+    pink: {
+        name: 'Roxo Pink',
+        nameEn: 'Roxo Pink',
+        primary: '#c32974',
+        primaryHover: '#d63b87',
         background: '#121212',
         surface: '#181818',
-        gradient: 'linear-gradient(135deg, #1ed760 0%, #1db954 100%)'
+        gradient: 'linear-gradient(135deg, #c32974 0%, #d63b87 100%)'
     },
     purple: {
         name: 'Roxo',
@@ -24,35 +24,17 @@ export const THEMES = {
         background: '#0f0f23',
         surface: '#1a1a2e',
         gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)'
-    },
-    cyberpunk: {
-        name: 'Cyberpunk',
-        nameEn: 'Cyberpunk',
-        primary: '#00ffff',
-        primaryHover: '#00e6e6',
-        background: '#0a0a0a',
-        surface: '#111111',
-        gradient: 'linear-gradient(135deg, #ff00ff 0%, #00ffff 100%)'
-    },
-    amoled: {
-        name: 'AMOLED',
-        nameEn: 'AMOLED',
-        primary: '#ffffff',
-        primaryHover: '#e5e5e5',
-        background: '#000000',
-        surface: '#000000',
-        gradient: 'linear-gradient(135deg, #333333 0%, #000000 100%)'
     }
 };
 
-let currentTheme = 'green';
+let currentTheme = 'pink';
 
 /**
  * [PT] Aplica tema selecionado
  * [EN] Applies selected theme
  */
 export function applyTheme(themeName) {
-    const theme = THEMES[themeName] || THEMES.green;
+    const theme = THEMES[themeName] || THEMES.pink;
     const root = document.documentElement;
     
     root.style.setProperty('--theme-primary', theme.primary);
@@ -72,7 +54,7 @@ export function applyTheme(themeName) {
  * [EN] Loads saved theme
  */
 export function loadTheme() {
-    const savedTheme = localStorage.getItem('open-music-hub-theme') || 'green';
+    const savedTheme = localStorage.getItem('open-music-hub-theme') || 'pink';
     applyTheme(savedTheme);
     return savedTheme;
 }

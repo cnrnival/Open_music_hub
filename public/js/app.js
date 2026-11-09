@@ -266,8 +266,8 @@ const defaultPreferences = Object.freeze({
     gapless: false,
     quality: "normal",
     profileName: "",
-    // Tema visual (estilo Spicetify): dark | pink | green | purple
-    // Visual theme (Spicetify-style): dark | pink | green | purple
+    // Tema visual: dark | pink | purple
+    // Visual theme: dark | pink | purple
     theme: "pink",
     // Foto e banner do perfil (data URLs guardadas apenas neste navegador).
     // Profile photo and banner (data URLs kept only in this browser).
@@ -1613,6 +1613,17 @@ async function playTrack(track, { autoplay = true } = {}) {
     }
     playerCover.style.backgroundImage = image ? `url("${image}")` : "";
     playerCover.querySelector(".mdi").hidden = Boolean(image);
+
+    // Atualizar créditos do painel Now Playing com os dados da faixa atual
+    // Update Now Playing panel credits with current track data
+    const artistName = track.artistName || "Artista desconhecido";
+    document.querySelectorAll(".now-playing-panel .credit-artist-link strong, .now-playing-panel [data-credit-artist]").forEach((el) => {
+        el.textContent = artistName;
+    });
+    const artistAbout = document.querySelector(".now-playing-panel .artist-about__copy p");
+    if (artistAbout) {
+        artistAbout.textContent = `Faixa de ${artistName} disponível neste player.`;
+    }
 
     audio.pause();
     audio.removeAttribute("src");
@@ -4851,7 +4862,7 @@ document.querySelector(".music-player__extras [aria-label='Tela cheia']").addEve
     );
 });
 
-document.querySelectorAll("[data-action]").forEach((button) => {
+document.querySelectorAll("[data-action]:not([data-action='queue'])").forEach((button) => {
     button.addEventListener("click", async () => {
         switch (button.dataset.action) {
             case "explore":
