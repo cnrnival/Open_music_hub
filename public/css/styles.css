@@ -411,7 +411,7 @@ a { color: var(--text-primary); text-decoration: none; }
   color: #b3b3b3;
   display: grid;
   place-items: center;
-  font-size: 18px;
+  font-size: 17px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   border: 1px solid var(--border);
 }
@@ -420,6 +420,7 @@ a { color: var(--text-primary); text-decoration: none; }
   border-radius: 50%;
   background: linear-gradient(135deg, #3e2754, #1a0d2a);
   color: #d3b4cc;
+  font-size: 16px;
 }
 
 .library-item > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
