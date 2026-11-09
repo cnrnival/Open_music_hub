@@ -3452,21 +3452,7 @@ async function loadSearchResults(query) {
         return;
     }
     const normalizedQuery = query.toLocaleLowerCase("pt-BR");
-    // Uma faixa com o título da busca é o destino mais provável do que um artista homônimo obscuro.
-    // A track titled like the query beats an obscure same-named artist as the intended destination.
-    const trackTitleMatches = results.some((item) =>
-        item.kind === "track"
-        && String(item.title || "").trim().toLocaleLowerCase("pt-BR").startsWith(normalizedQuery)
-    );
-    const artistMatch = trackTitleMatches ? null : results.find((item) =>
-        item.kind === "artist"
-        && String(item.title || "").trim().toLocaleLowerCase("pt-BR") === normalizedQuery
-    );
     closeLibraryDrawerIfOpen();
-    if (artistMatch) {
-        await openDetail(artistMatch, { history });
-        return;
-    }
     if (history && window.history.state?.search !== query) {
         window.history.pushState({ search: query }, "", `#search/${encodeURIComponent(query)}`);
     }
