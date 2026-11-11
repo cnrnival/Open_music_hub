@@ -2893,16 +2893,21 @@ function previewProgress() {
 function playAudio(countAsNew = !hasPlayedCurrentTrack) {
     const startingTrack = currentTrack;
     pendingPlayCount = countAsNew;
+    // Atualiza o estado visual imediatamente para evitar cliques duplos.
+    // Update visual state immediately to avoid double clicks.
+    setPlaybackState(true);
     // try/catch robusto: contorna restrições de autoplay e falhas de codec sem avisar na UI.
     // Robust try/catch: works around autoplay restrictions and codec failures without UI notice.
     audio.play().catch((error) => {
         if (currentTrack === startingTrack) {
             pendingPlayCount = false;
-            // Erro de reprodução é registrado no console apenas; rodapé permanece limpo.
-            // Playback error is logged to console only; footer stays clean.
+            // Se o play falhar, reverte o estado visual do botão.
+            // If play fails, revert button visual state.
+            setPlaybackState(false);
         }
         console.error("Falha ao iniciar a reprodução do áudio.", error);
     });
+}
 }
 
 function updateLibraryVisibility() {
@@ -3283,6 +3288,7 @@ playButton.addEventListener("click", () => {
         }
         playAudio();
     } else {
+        setPlaybackState(false);
         audio.pause();
     }
 });
