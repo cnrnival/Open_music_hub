@@ -5,9 +5,12 @@
     "start": "node server.js",
     "build": "npm run build:css",
     "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/css/tailwind.css --minify"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/cli": "^4.3.0",
     "tailwindcss": "^4.3.0"
   }

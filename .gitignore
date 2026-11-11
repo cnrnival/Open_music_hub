@@ -39,3 +39,7 @@ music/
 *.ogg
 *.wav
 *.webm
+
+# Playwright test results / Resultados de teste Playwright (não o código dos testes)
+playwright-report/
+test-results/

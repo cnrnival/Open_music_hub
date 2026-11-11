@@ -58,7 +58,7 @@ const profileHelpersReady = import("./profile.mjs").then((module) => {
 // Controles de player testados em src/player-controls.mjs, carregados sob demanda.
 // Player controls tested in src/player-controls.mjs, loaded on demand.
 let playerControls = null;
-const playerControlsReady = import("../src/player-controls.mjs").then((module) => {
+const playerControlsReady = import("./player-controls.mjs").then((module) => {
     playerControls = module;
     return module;
 }).catch((error) => {

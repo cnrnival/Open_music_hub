@@ -1379,6 +1379,23 @@ async function handleRequest(request, response) {
         }
 
         const decodedPath = decodeURIComponent(url.pathname);
+
+        // Serve arquivos de src/ para módulos ES importados dinamicamente pelo frontend.
+        // Serve files from src/ for ES modules dynamically imported by the frontend.
+        if (decodedPath.startsWith("/src/")) {
+            const srcRelativePath = decodedPath.slice(5); // remove "/src/"
+            const srcFilePath = path.resolve(projectRoot, "src", srcRelativePath);
+            if (
+                srcFilePath.startsWith(`${projectRoot}${path.sep}src${path.sep}`)
+                && !srcRelativePath.split(/[\\/]/).some((segment) => segment.startsWith("."))
+            ) {
+                serveStaticFile(request, response, srcFilePath);
+                return;
+            }
+            response.writeHead(404).end();
+            return;
+        }
+
         const relativePath = decodedPath === "/" ? "index.html" : decodedPath.slice(1);
         const filePath = path.resolve(publicRoot, relativePath);
         if (
