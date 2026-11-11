@@ -50,15 +50,28 @@
 * { box-sizing: border-box; }
 
 html {
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  overflow-x: hidden;
+  max-width: 100%;
 }
 
 body {
   margin: 0;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   background: var(--bg);
+}
+
+/* Permite scroll vertical quando necessário, mas nunca horizontal */
+.main-view,
+.library-panel,
+.now-playing-panel,
+.expanded-view,
+.lyrics-synced__lines {
+  overflow-x: hidden;
+  max-width: 100%;
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -2194,5 +2207,246 @@ body {
 [data-theme="pink"] { --accent: #c32974; --accent-hover: #d63b87; }
 [data-theme="purple"] { --accent: #8b5cf6; --accent-hover: #a78bfa; }
 
+/* ==========================================================================
+   Imagens responsivas - nenhuma imagem pode ser deformada, esticada ou cortada incorretamente
+   ========================================================================== */
 
+/* Qualquer elemento com background-image deve manter proporção */
+[style*="background-image"],
+[style*="backgroundImage"],
+.api-result-card__cover,
+.quick-pick__art,
+.artist-card__image,
+.release-card__art,
+.now-playing-panel__art,
+.expanded-view__art,
+.Pplay-music__cover,
+.featured-banner__cover,
+.news-card__cover,
+.profile-avatar,
+.detail-header__art {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Evita que imagens de fundo causem overflow */
+.detail-header__art,
+.expanded-view__art {
+  max-height: 60vh;
+}
+
+/* Garante que textos nunca causem overflow horizontal */
+h1, h2, h3, h4, h5, h6, p, span, strong, small, button, input {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  max-width: 100%;
+}
+
+/* Botões e ícones nunca podem ultrapassar o container */
+button, .icon-button, .filter-chip, .text-button, .outline-button, .primary-button, .secondary-button, .settings-button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Links podem quebrar linha quando necessário */
+a {
+  overflow-wrap: break-word;
+}
+
+/* ==========================================================================
+   Responsividade completa - Desktop, Tablet, Mobile, Retrato, Paisagem, Zoom
+   ========================================================================== */
+
+/* Ultra-wide desktop */
+@media (min-width: 1920px) {
+  .workspace { max-width: 1920px; margin: 0 auto; }
+  .topbar { padding: 0 48px; }
+  .main-view { max-width: 1200px; margin: 0 auto; }
+  .quick-picks { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .api-search-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .trends-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; }
+  .artist-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .release-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Desktop grande */
+@media (min-width: 1440px) and (max-width: 1919px) {
+  .workspace { max-width: 1440px; margin: 0 auto; }
+  .topbar { padding: 0 32px; }
+  .quick-picks { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .api-search-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .trends-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .artist-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .release-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Desktop médio */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  .workspace { max-width: 1280px; margin: 0 auto; }
+  .quick-picks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .api-search-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trends-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .artist-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .release-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Tablet paisagem / Desktop pequeno */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .workspace { max-width: 1120px; margin: 0 auto; }
+  .quick-picks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .api-search-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .trends-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .artist-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .release-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .topbar { padding: 0 24px; }
+}
+
+/* Tablet retrato */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .workspace { grid-template-columns: minmax(240px, 25%) minmax(0, 1fr); }
+  #sidebar-resizer { display: none; }
+  .now-playing-panel { display: none; }
+  .topbar__explore, .topbar__friends { display: none !important; }
+  .topbar__actions { gap: 6px; }
+  .quick-picks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .artist-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .release-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .api-search-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .trends-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .main-view { padding: 16px 16px 90px; }
+  .detail-header { min-height: 240px; padding: 24px; }
+}
+
+/* Mobile retrato */
+@media (max-width: 760px) {
+  body { grid-template-rows: 60px minmax(0, 1fr) 80px; }
+  .topbar {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 0 14px;
+    height: 60px;
+  }
+  .topbar__home { display: none; }
+  .search-box { width: 100%; height: 44px; border-radius: 500px; }
+  .topbar__actions > .icon-button { display: none; }
+  .topbar__actions > .settings-button { display: grid; }
+  .profile-button { width: 36px; height: 36px; }
+
+  .workspace { grid-template-columns: 1fr; padding: 0 8px; }
+  .library-panel { display: none; }
+  .main-view { padding: 14px 14px 90px; }
+  .detail-header { min-height: 220px; padding: 20px; }
+  .profile-header { flex-direction: column; align-items: flex-start; gap: 16px; padding: 20px; }
+  .profile-avatar { width: 88px; height: 88px; font-size: 34px; }
+
+  .featured-banner { grid-template-columns: 35% minmax(0, 1fr); min-height: 160px; }
+  .eyebrow { display: none; }
+  .quick-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .artist-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .release-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+  .music-player { grid-template-columns: 60px minmax(0, 1fr) 60px; gap: 12px; padding: 6px 14px; }
+  .Pplay-music__cover { width: 50px; height: 50px; border-radius: var(--radius-lg); border: 1px solid var(--border); }
+  .music-player__controls { gap: 14px; }
+  .music-player__secondary,
+  .music-player__timeline,
+  .music-player__extras,
+  .music-player__add { display: none !important; }
+  .music-player__play { width: 48px; height: 48px; font-size: 24px; border-radius: 50%; background: var(--accent); color: #000; box-shadow: 0 4px 14px rgba(195,41,116,0.4); }
+
+  .api-search-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .trends-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+
+  .section-heading h2 { font-size: 18px; }
+  .quick-pick { height: 52px; }
+  .quick-pick__art { width: 50px; height: 50px; font-size: 22px; }
+}
+
+/* Mobile paisagem - altura limitada */
+@media (max-width: 760px) and (orientation: landscape) {
+  body { grid-template-rows: 56px minmax(0, 1fr) 64px; }
+  .topbar { height: 56px; padding: 0 12px; gap: 8px; }
+  .search-box { height: 36px; font-size: 13px; }
+  .search-box input { font-size: 13px; }
+  .profile-button { width: 32px; height: 32px; font-size: 12px; }
+
+  .main-view { padding: 12px 12px 76px; }
+  .detail-header { min-height: 160px; padding: 16px; }
+  .profile-header { padding: 16px; gap: 12px; }
+  .profile-avatar { width: 72px; height: 72px; font-size: 28px; }
+
+  .featured-banner { min-height: 130px; grid-template-columns: 30% minmax(0, 1fr); }
+  .featured-banner h1 { font-size: clamp(18px, 3vw, 26px); }
+  .quick-picks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .artist-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .release-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+
+  .music-player { min-height: 64px; padding: 4px 12px; gap: 10px; }
+  .Pplay-music__cover { width: 44px; height: 44px; font-size: 18px; }
+  .music-player__play { width: 40px; height: 40px; font-size: 20px; }
+  .music-player__controls { gap: 10px; }
+  .music-player__controls button,
+  .music-player__extras button { width: 30px; height: 30px; font-size: 16px; }
+  .music-player__title { font-size: 12px; }
+  .music-player__artist { font-size: 10px; }
+
+  .quick-pick { height: 46px; }
+  .quick-pick__art { width: 40px; height: 40px; font-size: 18px; }
+  .section-heading h2 { font-size: 16px; }
+  .trends-grid { gap: 10px; }
+  .api-search-grid { gap: 10px; }
+}
+
+/* Suporte a zoom do navegador (125% e 150%) */
+@media (min-resolution: 125dpi), (min-resolution: 150dpi) {
+  .topbar__actions .icon-button,
+  .music-player__controls button,
+  .music-player__extras button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Suporte a telas muito pequenas (360px) */
+@media (max-width: 360px) {
+  .workspace { padding: 0 4px; }
+  .main-view { padding: 10px 10px 90px; }
+  .search-box { width: 100%; height: 40px; }
+  .topbar { padding: 0 10px; }
+  .quick-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .artist-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .release-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 10px; }
+  .trends-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 10px; }
+  .api-search-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 10px; }
+  .quick-pick { height: 48px; }
+  .quick-pick__art { width: 44px; height: 44px; font-size: 18px; }
+  .music-player { gap: 8px; padding: 4px 10px; }
+  .Pplay-music__cover { width: 44px; height: 44px; }
+  .music-player__play { width: 44px; height: 44px; font-size: 22px; }
+}
+
+/* Suporte a telas pequenas (390px) */
+@media (min-width: 361px) and (max-width: 390px) {
+  .workspace { padding: 0 6px; }
+  .main-view { padding: 12px 12px 90px; }
+  .quick-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .artist-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .release-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+
+/* Previne overflow horizontal absoluto */
+html, body, .workspace, .main-view, .library-panel, .now-playing-panel, .topbar {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
 
